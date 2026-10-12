@@ -2,3 +2,13 @@
 **/obj/
 artifacts/
 .DS_Store
+.vs/
+*.user
+*.suo
+.env
+.env.*
+*.pfx
+*.p12
+*.key
+*.pem
+*.log

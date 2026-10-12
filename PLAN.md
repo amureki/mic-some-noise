@@ -1,5 +1,7 @@
 # Windows soundpad plan
 
+Historical design notes follow. Current behavior and release instructions are in README.md. Public distribution is now supported under the MIT license through tagged GitHub releases.
+
 Status: core requirements, launcher interface, C#/.NET 10/WPF/NAudio stack, and initial performance targets agreed. Version one uses local playback, including audio imported from YouTube URLs. Import tooling, Windows audio routing, and measured performance still need validation.
 
 ## Goal
@@ -235,3 +237,11 @@ At the user's request, optional configured single-key SendInput automation now h
 ## Version 0.1.9 push-to-talk lead-in
 
 Automatic push-to-talk now waits 150 ms after key-down before starting the track. Settings accepts 0–2000 ms. Disabled push-to-talk adds no delay. Stop and track replacement invalidate pending starts; regression checks exercise the actual file-decoder/start path with disposable local WAV fixtures and no audio hardware.
+
+## Version 0.1.11 pause and resume
+
+F8 and the main button now play/pause/resume the selected track. A different selected track starts from the beginning. F9 stops and discards position. Pause preserves decoder position and releases automatic push-to-talk; resume presses it again and observes the configured delay. The app continues forwarding microphone audio. A separate game-microphone routing switch was discussed and deferred by the user.
+
+## Version 0.1.12 microphone policy
+
+Include my microphone while a track plays defaults off. The outgoing mix omits voice during track playback, lead-in, and the automatic push-to-talk release tail, but keeps capture draining. Pause and stop restore forwarding. Discord on a direct microphone input is unaffected.

@@ -1,0 +1,57 @@
+name: Windows release
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Check release version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          [xml]$project = Get-Content src/MicSomeNoise/MicSomeNoise.csproj
+          $version = $project.Project.PropertyGroup.Version
+          if ($env:TAG -cne "v$version" -or $version -notmatch '^\d+\.\d+\.\d+$') {
+            throw "Tag must match the project version: v$version"
+          }
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet run --project tests/MicSomeNoise.Checks -c Release
+      - run: ./scripts/publish.ps1 -SelfContained
+      - name: Publish ZIP and checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          $zip = 'artifacts/MicSomeNoise-win-x64.zip'
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  MicSomeNoise-win-x64.zip" | Set-Content "$zip.sha256" -Encoding ascii
+          $draft = gh release view $env:TAG --json isDraft --jq '.isDraft' 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $env:TAG --verify-tag --draft --title "Mic Some Noise $env:TAG" --generate-notes
+            if ($LASTEXITCODE -ne 0) { throw 'Could not create release.' }
+          } elseif ($draft -ne 'true') {
+            throw 'Release is already published. Use a new version tag.'
+          }
+          gh release upload $env:TAG $zip "$zip.sha256" --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Could not upload release files.' }
+          gh release edit $env:TAG --draft=false
+          if ($LASTEXITCODE -ne 0) { throw 'Could not publish release.' }

@@ -7,9 +7,20 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
-    <Version>0.1.10</Version>
+    <Version>0.1.12</Version>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
   </PropertyGroup>
-  <ItemGroup><PackageReference Include="NAudio" Version="2.2.1" /></ItemGroup>
+  <ItemGroup><PackageReference Include="NAudio" Version="2.2.1" GeneratePathProperty="true" /></ItemGroup>
+  <Target Name="CopyDistributionLicenses" AfterTargets="Publish">
+    <ItemGroup>
+      <_RuntimeLicense Include="%(ResolvedRuntimePack.PackageDirectory)/LICENSE*;%(ResolvedRuntimePack.PackageDirectory)/THIRD-PARTY-NOTICES*"
+                       Condition="'$(SelfContained)' == 'true' and ('%(ResolvedRuntimePack.FrameworkName)' == 'Microsoft.NETCore.App' or '%(ResolvedRuntimePack.FrameworkName)' == 'Microsoft.WindowsDesktop.App')">
+        <PackageName>%(ResolvedRuntimePack.Identity)</PackageName>
+      </_RuntimeLicense>
+    </ItemGroup>
+    <Copy SourceFiles="$(MSBuildProjectDirectory)/../../LICENSE" DestinationFiles="$(PublishDir)licenses/MicSomeNoise/LICENSE.txt" />
+    <Copy SourceFiles="$(PkgNAudio)/license.txt" DestinationFiles="$(PublishDir)licenses/NAudio/LICENSE.txt" />
+    <Copy SourceFiles="@(_RuntimeLicense)" DestinationFiles="@(_RuntimeLicense->'$(PublishDir)licenses/%(PackageName)/%(Filename)%(Extension)')" />
+  </Target>
 </Project>

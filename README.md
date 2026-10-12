@@ -1,27 +1,29 @@
 # Mic Some Noise
 
-A Windows 11 sound launcher for voice chat. Version 0.1.10 supports one track, microphone forwarding, local WAV/MP3 imports, and YouTube URL imports.
+A Windows 11 sound launcher for voice chat. Version 0.1.12 supports one track, microphone forwarding, local WAV/MP3 imports, and YouTube URL imports.
 
 ## Run on Windows 11 x64
+
+Download [the latest Windows ZIP](https://github.com/amureki/mic-some-noise/releases/latest/download/MicSomeNoise-win-x64.zip), or choose a version from [Releases](https://github.com/amureki/mic-some-noise/releases). Downloads become available after the first version tag is built.
 
 1. Extract `MicSomeNoise-win-x64.zip` to a writable folder. Keep its files together.
 2. Install [VB-CABLE](https://vb-audio.com/Cable/) using the vendor's Windows installer. Restart Windows if requested.
 3. Run `MicSomeNoise.exe`. The self-contained package includes .NET. For a framework-dependent build, install the [.NET 10 Desktop Runtime x64](https://dotnet.microsoft.com/download/dotnet/10.0).
 4. In Settings, select your physical microphone, physical headphones, and **CABLE Input** as broadcast output. Click **Apply and start audio**.
 5. In Discord or your game's voice settings, select **CABLE Output** as the input and your physical headphones as the output. Leave Windows default devices unchanged. Disable Windows “Listen to this device” for the cable and microphone to prevent duplicate audio.
-6. Import a WAV or MP3, select it in the launcher, and press Enter. Ask a teammate to confirm that they hear both speech and the track.
+6. Import a WAV or MP3, select it in the launcher, and press F8. Ask a teammate to confirm that they hear the track. Microphone audio is excluded during playback by default; enable **Include my microphone while a track plays** to mix speech with tracks.
 
 The executable is unsigned. Windows may show an unknown-publisher warning. Only run the build you trust.
 
 ## Controls
 
 - `Ctrl+Alt+Space`: show the launcher and focus search.
-- Click or use Up / Down to select a track without playing. The Ready label names it. Play and F8 both play that track. The launcher stays open.
+- Click or use Up / Down to select a track without playing. The Ready label names it. The main button and F8 play, pause, or resume that track. The launcher stays open.
 - Escape or the close button: hide the launcher. Audio continues.
-- `F8`: play the selected track globally, without opening the launcher or changing focus.
-- `F9`: stop the track, including a pending load. Microphone forwarding continues.
+- `F8`: play, pause, or resume the selected track globally, without opening the launcher or changing focus.
+- `F9`: stop and reset the track, including a pending load or resume. Microphone forwarding continues.
 - Tray menu: open, stop, library, settings, or exit.
-- Settings: change all three hotkeys, devices, and microphone gain. The launcher slider controls track volume for both outputs.
+- Settings: change the global hotkeys, devices, and microphone gain. The launcher slider controls track volume for both outputs.
 
 The app clamps the mixed signal to prevent digital overflow. Lower track or microphone volume if the mix sounds distorted. Start with headphones to avoid acoustic feedback.
 
@@ -58,7 +60,7 @@ Use voice activation for the first test. Select CABLE Output explicitly. If trac
 Test these cases before relying on it during a game:
 
 - Speech alone, music alone, and both together; no microphone monitoring in headphones.
-- Rapid Enter presses, replacement, stop during loading, natural completion, and a long track.
+- Rapid F8 presses, pause/resume, replacement, stop during loading or resume, natural completion, and a long track.
 - Hide/reopen, hotkey conflicts, held keys, and borderless/fullscreen game focus.
 - Local and YouTube import during playback; cancellation and invalid URLs; offline playback after restart.
 - Unplug/reconnect, sleep/resume, missing files, and restart with unavailable endpoints.
@@ -75,7 +77,26 @@ dotnet run --project tests/MicSomeNoise.Checks -c Release
 ./scripts/publish.ps1 -SelfContained
 ```
 
-Omit `-SelfContained` for the smaller package that requires the Desktop Runtime. The GitHub Actions workflow also produces a self-contained x64 ZIP.
+Omit `-SelfContained` for the smaller package that requires the Desktop Runtime.
+
+## GitHub releases
+
+Windows checks run on pull requests and pushes to `main` that change code, tests, scripts, or workflows. Documentation-only changes skip CI. New commits cancel older checks for the same branch or pull request. Routine checks do not package or upload artifacts.
+
+To release, update the project version and the version shown in the app and docs, then commit and push the changes. Tag that commit with the matching version:
+
+```sh
+git tag v0.1.12
+git push origin v0.1.12
+```
+
+The release workflow checks the tag against the project version, runs the checks on Windows, and publishes a self-contained x64 ZIP with a SHA-256 checksum. It uploads files to a draft before publishing, so a failed upload does not leave a public release without its download. Rerun a failed job from Actions; a draft can be retried, but an already published release requires a new version.
+
+No personal access token or repository secret is needed. The workflow uses GitHub's temporary token with `contents: write`; routine checks have read-only access. Actions are pinned to commit hashes. Builds are unsigned and do not run audio devices or game integration tests.
+
+## License
+
+[MIT](LICENSE). ZIPs include the app, NAudio, and bundled .NET license notices in `licenses/`. VB-CABLE and the optional import tools are installed separately under their publishers' licenses.
 
 The audio engine uses NAudio 2.2.1, shared-mode WASAPI, 48 kHz stereo mixing, incremental decoding, and bounded audio buffers. Headphone playback consumes a copy of the decoded track; microphone audio goes only to broadcast. Buffer correction drops old frames when devices drift. This may cause an audible discontinuity and requires hardware validation.
 
@@ -108,3 +129,17 @@ Managed checks use a fake OS sender. They cover disable-by-default, hold/release
 ## Track volume shortcuts
 
 F10 lowers track volume and F11 raises it, in five-percentage-point steps between 0% and 100%. Both are global, configurable in Settings, and checked against other shortcuts and the push-to-talk key. They change the track level in headphones and broadcast, leave microphone gain unchanged, update the launcher slider/percentage, and save the level immediately.
+
+## Pause and resume
+
+The main button and F8 act on the selected track. If that track is playing, they pause it; if it is paused, they resume it at its retained position. Selecting another track and pressing F8 replaces the active track. F9 discards the retained position. Paused positions are not saved across app restarts.
+
+Pause stops track decoding and clears queued headphone monitoring. Device buffers can still contain a short tail. Microphone forwarding stays active. Automatic push-to-talk releases on pause; resuming presses it again and uses the configured lead-in delay. Stop and another pause can cancel that delay. The main button reflects Play, Pause, or Resume, and the current-track label distinguishes paused playback.
+
+For Discord on the physical microphone and a game on VB-CABLE, Discord receives voice independently. Pausing does not mute the microphone. The setting below controls whether the game receives voice during track playback.
+
+## Microphone during tracks
+
+Settings has **Include my microphone while a track plays**, off by default. Off sends only the track through the cable during playback and the automatic push-to-talk delay. On mixes your voice with the track. Pause and Stop restore normal microphone forwarding. Natural completion keeps it muted through the short push-to-talk release tail, then restores it. Microphone capture keeps draining while muted to avoid replaying old speech.
+
+Discord remains independent when its input is your physical microphone or NVIDIA Broadcast. This setting changes only this app's mix sent to the game through VB-CABLE. It does not mute the microphone device globally. Audio already queued in Windows or the virtual cable can still produce a short transition tail; verify transitions with your game.

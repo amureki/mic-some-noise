@@ -16,6 +16,7 @@ public sealed class Settings
     public string? Headphones { get; set; }
     public string? Cable { get; set; }
     public float TrackVolume { get; set; } = .5f;
+    public bool IncludeMicrophoneDuringPlayback { get; set; }
     public float MicrophoneVolume { get; set; } = 1f;
     public string OpenHotkey { get; set; } = "Ctrl+Alt+Space";
     public string PlayHotkey { get; set; } = "F8";

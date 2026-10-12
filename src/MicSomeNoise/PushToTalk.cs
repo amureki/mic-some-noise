@@ -5,6 +5,7 @@ namespace MicSomeNoise;
 
 public sealed class PushToTalk(Action<ushort, bool> sendKey) : IDisposable
 {
+    internal const int ReleaseTailMilliseconds = 120;
     private readonly object gate = new();
     private bool enabled;
     private ushort key, heldKey;
@@ -38,7 +39,7 @@ public sealed class PushToTalk(Action<ushort, bool> sendKey) : IDisposable
             int request = ++generation;
             releaseTimer?.Dispose();
             // Allow the final WASAPI output buffer to drain before closing voice transmission.
-            releaseTimer = new Timer(_ => { lock (gate) { if (request == generation) Release(); } }, null, 120, Timeout.Infinite);
+            releaseTimer = new Timer(_ => { lock (gate) { if (request == generation) Release(); } }, null, ReleaseTailMilliseconds, Timeout.Infinite);
         }
     }
     public void Release()

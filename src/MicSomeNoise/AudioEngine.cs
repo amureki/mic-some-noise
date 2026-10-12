@@ -33,8 +33,14 @@ public sealed class AudioEngine : IDisposable
     public void ClearTest() { lock (gate) testRecording.Clear(); }
     private int generation;
     private int playbackStartDelayMs;
+    private bool automaticPushToTalk;
+    private long microphoneMuteUntil;
+    public bool IncludeMicrophoneDuringPlayback { get; set; }
     private float trackVolume = .5f, micVolume = 1;
     public string? Current { get; private set; }
+    public string? CurrentTrackId { get; private set; }
+    public bool IsPaused { get; private set; }
+    public bool IsStarting { get; private set; }
     public event Action<string>? Error;
     public event Action? Changed;
     public event Action? TrackStarting;
@@ -68,6 +74,8 @@ public sealed class AudioEngine : IDisposable
             broadcast.Init(new Output(this, true));
             headphones.PlaybackStopped += OnOutputStopped;
             broadcast.PlaybackStopped += OnOutputStopped;
+            IncludeMicrophoneDuringPlayback = settings.IncludeMicrophoneDuringPlayback;
+            automaticPushToTalk = settings.PushToTalkEnabled;
             playbackStartDelayMs = settings.PushToTalkEnabled ? Math.Clamp(settings.PushToTalkDelayMs, 0, 2000) : 0;
             TrackVolume = settings.TrackVolume;
             MicrophoneVolume = settings.MicrophoneVolume;
@@ -88,7 +96,57 @@ public sealed class AudioEngine : IDisposable
         if (source.WaveFormat.Channels != 2) throw new InvalidOperationException("Only mono and stereo audio devices/files are supported. Select stereo format in Windows sound settings.");
         return source.WaveFormat.SampleRate == 48000 ? source : new WdlResamplingSampleProvider(source, 48000);
     }
+    public Task TogglePlayback(Track selected)
+    {
+        lock (gate)
+        {
+            if (track != null && CurrentTrackId == selected.Id)
+            {
+                if (IsPaused) return Resume();
+                Pause();
+                return Task.CompletedTask;
+            }
+        }
+        return Play(selected);
+    }
+    public void Pause()
+    {
+        lock (gate)
+        {
+            if (track == null || IsPaused) return;
+            generation++;
+            microphoneMuteUntil = 0;
+            IsPaused = true;
+            IsStarting = false;
+            monitor.Clear();
+            TrackStopped?.Invoke();
+        }
+        Changed?.Invoke();
+    }
+    public async Task Resume()
+    {
+        int request, delay;
+        lock (gate)
+        {
+            if (track == null || !IsPaused) return;
+            if (!Running) throw new InvalidOperationException("Apply your audio devices in Settings before resuming.");
+            TrackStarting?.Invoke();
+            request = ++generation;
+            delay = playbackStartDelayMs;
+            IsPaused = false;
+            IsStarting = true;
+        }
+        Changed?.Invoke();
+        if (delay > 0) await Task.Delay(delay);
+        lock (gate)
+        {
+            if (request != generation) return;
+            IsStarting = false;
+        }
+        Changed?.Invoke();
+    }
     public async Task Play(Track selected)
+
     {
         if (!Running) throw new InvalidOperationException("Apply your audio devices in Settings before playback.");
         Stop();
@@ -103,6 +161,7 @@ public sealed class AudioEngine : IDisposable
             {
                 if (request != generation) return;
                 TrackStarting?.Invoke();
+                IsStarting = true;
                 delay = playbackStartDelayMs;
             }
             if (delay > 0) await Task.Delay(delay);
@@ -110,8 +169,8 @@ public sealed class AudioEngine : IDisposable
             {
                 // Stop or a newer selection may have cancelled this request during the delay.
                 if (request != generation) return;
-                reader = loaded;
- loaded = null; track = samples; Current = selected.Name;
+                IsStarting = false;
+                reader = loaded; loaded = null; track = samples; Current = selected.Name; CurrentTrackId = selected.Id;
             }
             Changed?.Invoke();
         }
@@ -121,7 +180,7 @@ public sealed class AudioEngine : IDisposable
     {
         lock (gate)
         {
-            generation++; track = null; reader?.Dispose(); reader = null; Current = null; monitor.Clear(); testRecording.StopPreview();
+            generation++; microphoneMuteUntil = 0; track = null; reader?.Dispose(); reader = null; Current = null; CurrentTrackId = null; IsPaused = IsStarting = false; monitor.Clear(); testRecording.StopPreview();
             TrackStopped?.Invoke();
         }
         Changed?.Invoke();
@@ -139,17 +198,21 @@ public sealed class AudioEngine : IDisposable
                 return count;
             }
 
-            int got = track?.Read(buffer, offset, count) ?? 0;
+            bool readingTrack = track != null && !IsPaused && !IsStarting;
+            int got = readingTrack ? track!.Read(buffer, offset, count) : 0;
             for (int i = 0; i < got; i++) buffer[offset + i] *= trackVolume;
             monitor.Write(buffer, offset, count);
-            if (track != null && got == 0)
+            if (readingTrack && got == 0)
             {
-                track = null; reader?.Dispose(); reader = null; Current = null;
+                track = null; reader?.Dispose(); reader = null; Current = null; CurrentTrackId = null;
+                if (automaticPushToTalk) microphoneMuteUntil = Environment.TickCount64 + PushToTalk.ReleaseTailMilliseconds;
                 TrackFinished?.Invoke();
                 ThreadPool.QueueUserWorkItem(_ => Changed?.Invoke());
             }
+            // Keep draining capture while muted so old speech is not replayed on unmute.
             microphoneSamples?.Read(scratch, 0, count);
-            for (int i = 0; i < count; i++) buffer[offset + i] = Math.Clamp(buffer[offset + i] + scratch[i] * micVolume, -1f, 1f);
+            bool muteMicrophone = !IncludeMicrophoneDuringPlayback && (readingTrack || IsStarting || Environment.TickCount64 < microphoneMuteUntil);
+            for (int i = 0; i < count; i++) buffer[offset + i] = Math.Clamp(buffer[offset + i] + (muteMicrophone ? 0 : scratch[i] * micVolume), -1f, 1f);
             testRecording.Capture(buffer, offset, count);
             return count;
         }

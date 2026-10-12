@@ -35,7 +35,7 @@ for (int round = 0; round < 10000; round++)
 Console.WriteLine("PASS: stereo FIFO order, overflow, underflow, clear, and 10,000 randomized operations.");
 
 // Run the production output providers without opening Windows audio devices.
-using (var engine = new AudioEngine())
+using (var engine = new AudioEngine { IncludeMicrophoneDuringPlayback = true })
 {
     var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
     typeof(AudioEngine).GetField("microphoneSamples", flags)!.SetValue(engine, new ConstantSamples(.75f));
@@ -70,7 +70,7 @@ using (var engine = new AudioEngine())
 Console.WriteLine("PASS: production output providers isolate microphone from headphones, mix tracks, and preserve speech after stop. Windows endpoint routing is not covered.");
 
 // WASAPI consumes byte buffers through this adapter, not ordinary float arrays.
-using (var engine = new AudioEngine())
+using (var engine = new AudioEngine { IncludeMicrophoneDuringPlayback = true })
 {
     var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
     typeof(AudioEngine).GetField("microphoneSamples", flags)!.SetValue(engine, new ConstantSamples(.25f));
@@ -93,7 +93,7 @@ using (var engine = new AudioEngine())
 }
 Console.WriteLine("PASS: reused NAudio byte-backed output buffers stay isolated without microphone accumulation.");
 
-using (var engine = new AudioEngine())
+using (var engine = new AudioEngine { IncludeMicrophoneDuringPlayback = true })
 {
     var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
     var microphoneField = typeof(AudioEngine).GetField("microphoneSamples", flags)!;
@@ -143,7 +143,7 @@ Console.WriteLine("PASS: test recording captures the broadcast mix, previews onl
 // Fake only the OS key sender: no actual input or Windows audio devices are used.
 var sentKeys = new System.Collections.Concurrent.ConcurrentQueue<(ushort Key, bool Down)>();
 using (var ptt = new PushToTalk((key, down) => sentKeys.Enqueue((key, down))))
-using (var engine = new AudioEngine())
+using (var engine = new AudioEngine { IncludeMicrophoneDuringPlayback = true })
 {
     ptt.Hold(); ptt.Release();
     if (!sentKeys.IsEmpty) throw new Exception("Disabled push-to-talk sent input.");
@@ -200,7 +200,7 @@ Console.WriteLine("PASS: optional push-to-talk holds/releases, natural completio
 string fixture = Path.Combine(Path.GetTempPath(), "mic-delay-" + Guid.NewGuid().ToString("N") + ".wav");
 using (var writer = new NAudio.Wave.WaveFileWriter(fixture, NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(48000, 2)))
     writer.WriteSamples(new float[9600], 0, 9600);
-using (var engine = new AudioEngine())
+using (var engine = new AudioEngine { IncludeMicrophoneDuringPlayback = true })
 {
     var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
     var broadcastField = typeof(AudioEngine).GetField("broadcast", flags)!;
@@ -227,16 +227,87 @@ using (var engine = new AudioEngine())
         await Task.WhenAll(replaced, replacement);
         if (engine.Current != "new" || !held || watch.ElapsedMilliseconds < 140)
             throw new Exception("Replacement skipped its delay or stale playback replaced it.");
+        var selectedTrack = new Track("new", "new", fixture);
+        var output = typeof(AudioEngine).GetNestedType("Output", System.Reflection.BindingFlags.NonPublic)!;
+        var cable = new NAudio.Wave.SampleProviders.SampleToWaveProvider((NAudio.Wave.ISampleProvider)Activator.CreateInstance(output, engine, true)!);
+        var headphones = new NAudio.Wave.SampleProviders.SampleToWaveProvider((NAudio.Wave.ISampleProvider)Activator.CreateInstance(output, engine, false)!);
+        typeof(AudioEngine).GetField("microphoneSamples", flags)!.SetValue(engine, new ConstantSamples(.25f));
+        var bytes = new byte[512];
+        cable.Read(bytes, 0, bytes.Length);
+        var decoder = (NAudio.Wave.AudioFileReader)typeof(AudioEngine).GetField("reader", flags)!.GetValue(engine)!;
+        long position = decoder.Position;
+        await engine.TogglePlayback(selectedTrack);
+        if (!engine.IsPaused || held || engine.CurrentTrackId != "new") throw new Exception("Pause did not retain the track and release push-to-talk.");
+        for (int i = 0; i < 100; i++) cable.Read(bytes, 0, bytes.Length);
+        if (decoder.Position != position || !engine.IsPaused) throw new Exception("Paused decoder advanced or finished.");
+        if (Enumerable.Range(0, bytes.Length / 4).Any(i => BitConverter.ToSingle(bytes, i * 4) != .25f))
+            throw new Exception("Pause interrupted microphone forwarding.");
+        headphones.Read(bytes, 0, bytes.Length);
+        if (bytes.Any(x => x != 0)) throw new Exception("Pause left audio in headphone monitoring.");
+        var resumed = engine.TogglePlayback(selectedTrack);
+        if (!held || !engine.IsStarting) throw new Exception("Resume did not hold push-to-talk before waiting.");
+        cable.Read(bytes, 0, bytes.Length);
+        if (decoder.Position != position) throw new Exception("Resume consumed audio during the push-to-talk delay.");
+        await resumed;
+        cable.Read(bytes, 0, bytes.Length);
+        if (engine.IsPaused || engine.IsStarting || decoder.Position <= position) throw new Exception("Resume failed to continue the decoder.");
+        engine.Pause();
+        var cancelledResume = engine.Resume();
+        engine.Stop();
+        await cancelledResume;
+        if (held || engine.Current != null || engine.IsStarting || engine.IsPaused) throw new Exception("Stop did not cancel a pending resume.");
+        await engine.TogglePlayback(selectedTrack);
+        if (engine.CurrentTrackId != "new" || engine.IsPaused) throw new Exception("Play after stop did not restart the selected track.");
+        engine.Pause();
+        await engine.TogglePlayback(new Track("different", "different", fixture));
+        if (engine.CurrentTrackId != "different" || engine.IsPaused) throw new Exception("Selecting a different track resumed the previous track.");
         engine.Stop();
     }
     finally
     {
         broadcastField.SetValue(engine, null);
+
         engine.Stop();
         File.Delete(fixture);
     }
 }
-Console.WriteLine("PASS: actual decoder/start path waits for push-to-talk, cancels on Stop, and ignores replaced delayed requests.");
+Console.WriteLine("PASS: actual decoder/start path, lead-in cancellation, pause position, resume, microphone continuity, push-to-talk release, and track replacement.");
+
+using (var engine = new AudioEngine())
+{
+    var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+    typeof(AudioEngine).GetField("microphoneSamples", flags)!.SetValue(engine, new ConstantSamples(.5f));
+    typeof(AudioEngine).GetField("track", flags)!.SetValue(engine, new ConstantSamples(.25f));
+    engine.TrackVolume = 1;
+    var output = typeof(AudioEngine).GetNestedType("Output", System.Reflection.BindingFlags.NonPublic)!;
+    var cable = new NAudio.Wave.SampleProviders.SampleToWaveProvider((NAudio.Wave.ISampleProvider)Activator.CreateInstance(output, engine, true)!);
+    var bytes = new byte[512];
+    cable.Read(bytes, 0, bytes.Length);
+    if (Enumerable.Range(0, 128).Any(i => BitConverter.ToSingle(bytes, i * 4) != .25f)) throw new Exception("Default playback leaked microphone audio.");
+    engine.IncludeMicrophoneDuringPlayback = true;
+    cable.Read(bytes, 0, bytes.Length);
+    if (BitConverter.ToSingle(bytes, 0) != .75f) throw new Exception("Opt-in microphone mix failed.");
+    engine.IncludeMicrophoneDuringPlayback = false;
+    engine.Pause();
+    cable.Read(bytes, 0, bytes.Length);
+    if (BitConverter.ToSingle(bytes, 0) != .5f) throw new Exception("Pause did not restore microphone.");
+    engine.Stop();
+    typeof(AudioEngine).GetField("<IsStarting>k__BackingField", flags)!.SetValue(engine, true);
+    cable.Read(bytes, 0, bytes.Length);
+    if (bytes.Any(x => x != 0)) throw new Exception("Push-to-talk lead-in leaked microphone audio.");
+    engine.Stop();
+    cable.Read(bytes, 0, bytes.Length);
+    if (BitConverter.ToSingle(bytes, 0) != .5f) throw new Exception("Stop did not restore microphone.");
+    typeof(AudioEngine).GetField("track", flags)!.SetValue(engine, new EmptySamples());
+    typeof(AudioEngine).GetField("automaticPushToTalk", flags)!.SetValue(engine, true);
+    cable.Read(bytes, 0, bytes.Length);
+    cable.Read(bytes, 0, bytes.Length);
+    if (bytes.Any(x => x != 0)) throw new Exception("Microphone leaked during push-to-talk release tail.");
+    await Task.Delay(200);
+    cable.Read(bytes, 0, bytes.Length);
+    if (BitConverter.ToSingle(bytes, 0) != .5f) throw new Exception("Microphone did not return after completion.");
+}
+Console.WriteLine("PASS: tracks-only default, opt-in mix, pause/stop restoration, lead-in mute, and release-tail mute.");
 
 sealed class EmptySamples : NAudio.Wave.ISampleProvider
 {

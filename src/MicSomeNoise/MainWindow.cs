@@ -24,6 +24,7 @@ public sealed class MainWindow : Window
     private readonly TextBlock current = new();
     private readonly TextBlock selected = new() { TextWrapping = TextWrapping.Wrap, FontWeight = FontWeights.SemiBold };
     private readonly Forms.NotifyIcon tray;
+    private readonly Button playButton;
     private Hotkeys? hotkeys;
     private IntPtr previous;
     private CancellationTokenSource? importCancellation;
@@ -32,7 +33,7 @@ public sealed class MainWindow : Window
 
     public MainWindow()
     {
-        Title = "Mic Some Noise 0.1.10"; Width = 540; Height = 620; MinWidth = 440; MinHeight = 380;
+        Title = "Mic Some Noise 0.1.12"; Width = 540; Height = 620; MinWidth = 440; MinHeight = 380;
         WindowStartupLocation = WindowStartupLocation.CenterScreen; Topmost = true;
         FontFamily = new FontFamily("Segoe UI"); FontSize = 14;
         Background = new SolidColorBrush(Color.FromRgb(245, 246, 248));
@@ -56,7 +57,7 @@ public sealed class MainWindow : Window
 
         footer.Children.Add(selected);
         var buttons = new WrapPanel(); footer.Children.Add(buttons);
-        AddButton(buttons, "Play", async () => await PlaySelected());
+        playButton = AddButton(buttons, "Play", async () => await PlaySelected());
         AddButton(buttons, "Stop", () => audio.Stop());
         AddButton(buttons, "Import / library", ShowLibrary);
         AddButton(buttons, "Settings", ShowSettings);
@@ -118,7 +119,7 @@ public sealed class MainWindow : Window
         audio.TrackStopped += pushToTalk.Release;
         audio.TrackFinished += pushToTalk.ReleaseAfterPlayback;
         pushToTalk.Error += message => Dispatcher.BeginInvoke(() => { status.Text = message; tray?.ShowBalloonTip(5000, "Push-to-talk needs attention", message, Forms.ToolTipIcon.Warning); });
-        audio.Changed += () => Dispatcher.BeginInvoke(() => current.Text = audio.Current == null ? "No track playing" : "Playing: " + audio.Current);
+        audio.Changed += () => Dispatcher.BeginInvoke(UpdateReadyTrack);
         audio.Error += message => Dispatcher.BeginInvoke(() => { audio.Stop(); status.Text = message; tray?.ShowBalloonTip(5000, "Audio needs attention", message, Forms.ToolTipIcon.Warning); });
         tray = new Forms.NotifyIcon { Icon = System.Drawing.SystemIcons.Application, Text = "Mic Some Noise", Visible = true };
         var menu = new Forms.ContextMenuStrip();
@@ -154,7 +155,12 @@ public sealed class MainWindow : Window
     {
         var ready = store.Tracks.FirstOrDefault(t => t.Id == store.Settings.SelectedTrackId);
         if (ready == null) store.Settings.SelectedTrackId = null;
-        selected.Text = ready == null ? "Ready: select a track" : $"Ready: {ready.Name} · {store.Settings.PlayHotkey} to play";
+        string action = ready != null && ready.Id == audio.CurrentTrackId ? (audio.IsPaused ? "Resume" : "Pause") : "Play";
+        playButton.Content = action;
+        playButton.IsEnabled = ready != null;
+        selected.Text = ready == null ? "Ready: select a track" : $"Ready: {ready.Name} · {store.Settings.PlayHotkey} to {action.ToLowerInvariant()}";
+        current.Text = audio.Current == null ? "No track playing" : (audio.IsPaused ? "Paused: " : audio.IsStarting ? "Resuming: " : "Playing: ") + audio.Current;
+
     }
     private async Task PlaySelected()
     {
@@ -166,7 +172,7 @@ public sealed class MainWindow : Window
             return;
         }
 
-        try { await audio.Play(track); } catch (Exception e) { status.Text = e.Message; if (!IsVisible) tray.ShowBalloonTip(5000, "Playback failed", e.Message, Forms.ToolTipIcon.Warning); }
+        try { await audio.TogglePlayback(track); } catch (Exception e) { status.Text = e.Message; if (!IsVisible) tray.ShowBalloonTip(5000, "Playback failed", e.Message, Forms.ToolTipIcon.Warning); }
     }
     private void Reveal() { var foreground = Hotkeys.GetForegroundWindow(); if (foreground != new WindowInteropHelper(this).Handle) previous = foreground; Show(); WindowState = WindowState.Normal; Activate(); search.Focus(); search.SelectAll(); }
     private void Dismiss() { try { store.SaveSettings(); } catch (Exception e) { status.Text = e.Message; return; } Hide(); if (previous != IntPtr.Zero) Hotkeys.SetForegroundWindow(previous); }
@@ -193,9 +199,11 @@ public sealed class MainWindow : Window
         var outputs = List(DataFlow.Render);
         var hp = Devices("Headphones", outputs, store.Settings.Headphones);
         var cable = Devices("Broadcast output: CABLE Input", outputs, store.Settings.Cable);
+        var includeMicrophone = new CheckBox { Content = "Include my microphone while a track plays", IsChecked = store.Settings.IncludeMicrophoneDuringPlayback, Margin = new Thickness(0, 12, 0, 5) }; panel.Children.Add(includeMicrophone);
+        Label(panel, "Off sends only the track to the game during playback and the push-to-talk delay. Pausing or stopping restores your microphone. Discord stays unchanged when it uses your main mic directly.");
         Label(panel, "Microphone volume"); var gain = new Slider { Minimum = 0, Maximum = 2, Value = store.Settings.MicrophoneVolume }; panel.Children.Add(gain);
         Label(panel, "Open shortcut"); var open = new TextBox { Text = store.Settings.OpenHotkey }; panel.Children.Add(open);
-        Label(panel, "Play selected shortcut"); var play = new TextBox { Text = store.Settings.PlayHotkey }; panel.Children.Add(play);
+        Label(panel, "Play / pause shortcut"); var play = new TextBox { Text = store.Settings.PlayHotkey }; panel.Children.Add(play);
         Label(panel, "Stop shortcut"); var stop = new TextBox { Text = store.Settings.StopHotkey }; panel.Children.Add(stop);
         Label(panel, "Track volume down shortcut"); var volumeDown = new TextBox { Text = store.Settings.VolumeDownHotkey }; panel.Children.Add(volumeDown);
         Label(panel, "Track volume up shortcut"); var volumeUp = new TextBox { Text = store.Settings.VolumeUpHotkey }; panel.Children.Add(volumeUp);
@@ -219,7 +227,7 @@ public sealed class MainWindow : Window
                 audio.Stop();
                 pushToTalk.Configure(automaticPtt.IsChecked == true, pttCode);
                 var s = store.Settings; s.Microphone = (string)mic.SelectedValue; s.Headphones = (string)hp.SelectedValue; s.Cable = (string)cable.SelectedValue;
-                s.MicrophoneVolume = (float)gain.Value; s.OpenHotkey = open.Text; s.PlayHotkey = play.Text; s.StopHotkey = stop.Text; s.VolumeDownHotkey = volumeDown.Text; s.VolumeUpHotkey = volumeUp.Text; s.PushToTalkEnabled = automaticPtt.IsChecked == true; s.PushToTalkKey = pttKey.Text.Trim(); s.PushToTalkDelayMs = delayMs;
+                s.IncludeMicrophoneDuringPlayback = includeMicrophone.IsChecked == true; s.MicrophoneVolume = (float)gain.Value; s.OpenHotkey = open.Text; s.PlayHotkey = play.Text; s.StopHotkey = stop.Text; s.VolumeDownHotkey = volumeDown.Text; s.VolumeUpHotkey = volumeUp.Text; s.PushToTalkEnabled = automaticPtt.IsChecked == true; s.PushToTalkKey = pttKey.Text.Trim(); s.PushToTalkDelayMs = delayMs;
                 audio.Start(s); store.SaveSettings(); Refresh(); status.Text = "Audio ready. Select a track; use Play or your play hotkey. Escape hides."; window.Close();
             }
             catch (Exception e) { error.Text = e.Message; }
