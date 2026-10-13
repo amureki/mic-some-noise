@@ -38,7 +38,7 @@ public sealed class MainWindow : Window
         var iconUri = new Uri("pack://application:,,,/Assets/AppIcon.ico");
         Icon = System.Windows.Media.Imaging.BitmapFrame.Create(iconUri);
         using (var iconStream = Application.GetResourceStream(iconUri).Stream)
-            trayIcon = new System.Drawing.Icon(iconStream, System.Drawing.SystemInformation.SmallIconSize);
+            trayIcon = new System.Drawing.Icon(iconStream, Forms.SystemInformation.SmallIconSize);
         WindowStartupLocation = WindowStartupLocation.CenterScreen; Topmost = true;
         FontFamily = new FontFamily("Segoe UI"); FontSize = 14;
         Background = new SolidColorBrush(Color.FromRgb(245, 246, 248));
