@@ -8,10 +8,12 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <Version>0.1.12</Version>
+    <ApplicationIcon>Assets/AppIcon.ico</ApplicationIcon>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
   </PropertyGroup>
   <ItemGroup><PackageReference Include="NAudio" Version="2.2.1" GeneratePathProperty="true" /></ItemGroup>
+  <ItemGroup><Resource Include="Assets/AppIcon.ico" /></ItemGroup>
   <Target Name="CopyDistributionLicenses" AfterTargets="Publish">
     <ItemGroup>
       <_RuntimeLicense Include="%(ResolvedRuntimePack.PackageDirectory)/LICENSE*;%(ResolvedRuntimePack.PackageDirectory)/THIRD-PARTY-NOTICES*"

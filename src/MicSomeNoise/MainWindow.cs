@@ -24,6 +24,7 @@ public sealed class MainWindow : Window
     private readonly TextBlock current = new();
     private readonly TextBlock selected = new() { TextWrapping = TextWrapping.Wrap, FontWeight = FontWeights.SemiBold };
     private readonly Forms.NotifyIcon tray;
+    private readonly System.Drawing.Icon trayIcon;
     private readonly Button playButton;
     private Hotkeys? hotkeys;
     private IntPtr previous;
@@ -34,6 +35,10 @@ public sealed class MainWindow : Window
     public MainWindow()
     {
         Title = "Mic Some Noise 0.1.12"; Width = 540; Height = 620; MinWidth = 440; MinHeight = 380;
+        var iconUri = new Uri("pack://application:,,,/Assets/AppIcon.ico");
+        Icon = System.Windows.Media.Imaging.BitmapFrame.Create(iconUri);
+        using (var iconStream = Application.GetResourceStream(iconUri).Stream)
+            trayIcon = new System.Drawing.Icon(iconStream, System.Drawing.SystemInformation.SmallIconSize);
         WindowStartupLocation = WindowStartupLocation.CenterScreen; Topmost = true;
         FontFamily = new FontFamily("Segoe UI"); FontSize = 14;
         Background = new SolidColorBrush(Color.FromRgb(245, 246, 248));
@@ -121,7 +126,7 @@ public sealed class MainWindow : Window
         pushToTalk.Error += message => Dispatcher.BeginInvoke(() => { status.Text = message; tray?.ShowBalloonTip(5000, "Push-to-talk needs attention", message, Forms.ToolTipIcon.Warning); });
         audio.Changed += () => Dispatcher.BeginInvoke(UpdateReadyTrack);
         audio.Error += message => Dispatcher.BeginInvoke(() => { audio.Stop(); status.Text = message; tray?.ShowBalloonTip(5000, "Audio needs attention", message, Forms.ToolTipIcon.Warning); });
-        tray = new Forms.NotifyIcon { Icon = System.Drawing.SystemIcons.Application, Text = "Mic Some Noise", Visible = true };
+        tray = new Forms.NotifyIcon { Icon = trayIcon, Text = "Mic Some Noise", Visible = true };
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add("Open", null, (_, _) => Reveal()); menu.Items.Add("Stop track", null, (_, _) => audio.Stop());
         menu.Items.Add("Library", null, (_, _) => ShowLibrary()); menu.Items.Add("Settings", null, (_, _) => ShowSettings());
@@ -176,7 +181,7 @@ public sealed class MainWindow : Window
     }
     private void Reveal() { var foreground = Hotkeys.GetForegroundWindow(); if (foreground != new WindowInteropHelper(this).Handle) previous = foreground; Show(); WindowState = WindowState.Normal; Activate(); search.Focus(); search.SelectAll(); }
     private void Dismiss() { try { store.SaveSettings(); } catch (Exception e) { status.Text = e.Message; return; } Hide(); if (previous != IntPtr.Zero) Hotkeys.SetForegroundWindow(previous); }
-    private void Exit() { if (importCancellation != null) { MessageBox.Show("Cancel the import and wait for it to finish before exiting."); return; } pushToTalk.Release(); exiting = true; store.SaveSettings(); hotkeys?.Dispose(); tray.Dispose(); audio.Dispose(); pushToTalk.Dispose(); Application.Current.Shutdown(); }
+    private void Exit() { if (importCancellation != null) { MessageBox.Show("Cancel the import and wait for it to finish before exiting."); return; } pushToTalk.Release(); exiting = true; store.SaveSettings(); hotkeys?.Dispose(); tray.Dispose(); trayIcon.Dispose(); audio.Dispose(); pushToTalk.Dispose(); Application.Current.Shutdown(); }
     private Window Dialog(string title, int height, out StackPanel panel)
     {
         var window = new Window { Owner = this, Title = title, Width = 600, Height = height, MinWidth = 480, MinHeight = 400, FontFamily = FontFamily, FontSize = FontSize, WindowStartupLocation = WindowStartupLocation.CenterScreen };
