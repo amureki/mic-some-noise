@@ -199,7 +199,7 @@ Console.WriteLine("PASS: optional push-to-talk holds/releases, natural completio
 
 string fixture = Path.Combine(Path.GetTempPath(), "mic-delay-" + Guid.NewGuid().ToString("N") + ".wav");
 using (var writer = new NAudio.Wave.WaveFileWriter(fixture, NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(48000, 2)))
-    writer.WriteSamples(new float[9600], 0, 9600);
+    writer.WriteSamples(Enumerable.Repeat(.125f, 9600).ToArray(), 0, 9600);
 using (var engine = new AudioEngine { IncludeMicrophoneDuringPlayback = true })
 {
     var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
@@ -262,6 +262,31 @@ using (var engine = new AudioEngine { IncludeMicrophoneDuringPlayback = true })
         await engine.TogglePlayback(new Track("different", "different", fixture));
         if (engine.CurrentTrackId != "different" || engine.IsPaused) throw new Exception("Selecting a different track resumed the previous track.");
         engine.Stop();
+        engine.IncludeMicrophoneDuringPlayback = false;
+        engine.TrackVolume = 1;
+        pressed = new TaskCompletionSource(System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
+        var playback = engine.TogglePlayback(selectedTrack);
+        await pressed.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        cable.Read(bytes, 0, bytes.Length);
+        if (bytes.Any(x => x != 0)) throw new Exception("Real playback leaked microphone during push-to-talk lead-in.");
+        headphones.Read(bytes, 0, bytes.Length);
+        await playback;
+        for (int block = 0; block < 20; block++)
+        {
+            cable.Read(bytes, 0, bytes.Length);
+            if (!held || Enumerable.Range(0, bytes.Length / 4).Any(i => BitConverter.ToSingle(bytes, i * 4) != .125f))
+                throw new Exception("Real playback did not send track-only audio with push-to-talk held.");
+            headphones.Read(bytes, 0, bytes.Length);
+            if (Enumerable.Range(0, bytes.Length / 4).Any(i => BitConverter.ToSingle(bytes, i * 4) != .125f))
+                throw new Exception("Headphone and cable track audio differ.");
+        }
+        await engine.TogglePlayback(selectedTrack);
+        cable.Read(bytes, 0, bytes.Length);
+        if (held || BitConverter.ToSingle(bytes, 0) != .25f) throw new Exception("Pause failed to release push-to-talk and restore voice.");
+        await engine.TogglePlayback(selectedTrack);
+        cable.Read(bytes, 0, bytes.Length);
+        if (!held || BitConverter.ToSingle(bytes, 0) != .125f) throw new Exception("Resume failed to restore track-only audio.");
+        engine.Stop();
     }
     finally
     {
@@ -272,6 +297,7 @@ using (var engine = new AudioEngine { IncludeMicrophoneDuringPlayback = true })
     }
 }
 Console.WriteLine("PASS: actual decoder/start path, lead-in cancellation, pause position, resume, microphone continuity, push-to-talk release, and track replacement.");
+Console.WriteLine("PASS: real WAV playback sends identical track-only audio to cable and headphones while push-to-talk is held; pause restores voice and resume suppresses it.");
 
 using (var engine = new AudioEngine())
 {
