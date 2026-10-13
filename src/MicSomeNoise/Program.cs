@@ -14,6 +14,7 @@ public static class Program
         try
         {
             var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+            app.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("pack://application:,,,/Theme.xaml") });
             app.Run(new MainWindow());
         }
         catch (Exception e) { MessageBox.Show(e.ToString(), "Mic Some Noise could not start"); }

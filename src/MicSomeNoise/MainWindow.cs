@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -22,6 +23,7 @@ public sealed class MainWindow : Window
     private readonly ListBox results = new();
     private readonly TextBlock status = new() { TextWrapping = TextWrapping.Wrap };
     private readonly TextBlock current = new();
+    private readonly TextBlock libraryCount = new();
     private readonly TextBlock selected = new() { TextWrapping = TextWrapping.Wrap, FontWeight = FontWeights.SemiBold };
     private readonly Forms.NotifyIcon tray;
     private readonly System.Drawing.Icon trayIcon;
@@ -34,22 +36,40 @@ public sealed class MainWindow : Window
 
     public MainWindow()
     {
-        Title = "Mic Some Noise 0.1.12"; Width = 540; Height = 620; MinWidth = 440; MinHeight = 380;
+        Style = (Style)FindResource(typeof(Window));
+        Title = "Mic Some Noise 0.1.12"; Width = 680; Height = 800; MinWidth = 560; MinHeight = 600;
+        MinHeight = Math.Min(MinHeight, SystemParameters.WorkArea.Height);
+        MinWidth = Math.Min(MinWidth, SystemParameters.WorkArea.Width);
+        Height = Math.Min(Height, SystemParameters.WorkArea.Height);
+        Width = Math.Min(Width, SystemParameters.WorkArea.Width);
         var iconUri = new Uri("pack://application:,,,/Assets/AppIcon.ico");
         Icon = System.Windows.Media.Imaging.BitmapFrame.Create(iconUri);
         using (var iconStream = Application.GetResourceStream(iconUri).Stream)
             trayIcon = new System.Drawing.Icon(iconStream, Forms.SystemInformation.SmallIconSize);
         WindowStartupLocation = WindowStartupLocation.CenterScreen; Topmost = true;
         FontFamily = new FontFamily("Segoe UI"); FontSize = 14;
-        Background = new SolidColorBrush(Color.FromRgb(245, 246, 248));
         var root = new DockPanel { Margin = new Thickness(24) }; Content = root;
         var header = new StackPanel(); DockPanel.SetDock(header, Dock.Top); root.Children.Add(header);
-        header.Children.Add(new TextBlock { Text = "Mic Some Noise", FontSize = 25, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 16) });
+        var heading = new DockPanel { Margin = new Thickness(0, 0, 0, 18) };
+        var navigation = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right };
+        DockPanel.SetDock(navigation, Dock.Right); heading.Children.Add(navigation);
+        AddButton(navigation, "Import / library", ShowLibrary);
+        AddButton(navigation, "Settings", ShowSettings);
+        heading.Children.Add(new TextBlock { Text = "Mic Some Noise", FontSize = 24, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+        header.Children.Add(heading);
         search.Margin = new Thickness(0, 0, 0, 12); search.Padding = new Thickness(10); search.ToolTip = "Search your local library";
         System.Windows.Automation.AutomationProperties.SetName(search, "Search sounds");
-        header.Children.Add(search);
+        var searchContainer = new Grid(); searchContainer.Children.Add(search);
+        var searchHint = new TextBlock { Text = "Search tracks…", Foreground = (Brush)FindResource("Muted"), Margin = new Thickness(11, 11, 11, 0), IsHitTestVisible = false };
+        searchContainer.Children.Add(searchHint);
+        search.TextChanged += (_, _) => searchHint.Visibility = search.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        header.Children.Add(searchContainer);
+        libraryCount.Foreground = (Brush)FindResource("Muted"); libraryCount.FontSize = 12; libraryCount.Margin = new Thickness(2, 0, 0, 8);
+        header.Children.Add(libraryCount);
         var footer = new StackPanel(); DockPanel.SetDock(footer, Dock.Bottom); root.Children.Add(footer);
-        current.Margin = new Thickness(0, 14, 0, 4); footer.Children.Add(current);
+        footer.Children.Add(new Border { Height = 1, Background = (Brush)FindResource("Outline"), Margin = new Thickness(0, 12, 0, 12) });
+        current.Foreground = (Brush)FindResource("Muted"); current.FontSize = 12; current.TextTrimming = TextTrimming.CharacterEllipsis;
+        current.Margin = new Thickness(0, 0, 0, 4); footer.Children.Add(current);
         var volume = new Slider { Minimum = 0, Maximum = 1, Value = store.Settings.TrackVolume, ToolTip = "Track volume", Margin = new Thickness(0, 4, 0, 8) };
         var volumeLabel = new TextBlock { Text = $"Track volume: {volume.Value:P0}" }; footer.Children.Add(volumeLabel); footer.Children.Add(volume);
         volume.ValueChanged += (_, _) =>
@@ -60,12 +80,12 @@ public sealed class MainWindow : Window
             try { store.SaveSettings(); } catch (Exception e) { status.Text = "Could not save volume: " + e.Message; }
         };
 
-        footer.Children.Add(selected);
+        selected.TextWrapping = TextWrapping.NoWrap; selected.TextTrimming = TextTrimming.CharacterEllipsis;
+        footer.Children.Insert(2, selected);
         var buttons = new WrapPanel(); footer.Children.Add(buttons);
         playButton = AddButton(buttons, "Play", async () => await PlaySelected());
+        playButton.Style = (Style)FindResource("PrimaryButton"); playButton.MinWidth = 100;
         AddButton(buttons, "Stop", () => audio.Stop());
-        AddButton(buttons, "Import / library", ShowLibrary);
-        AddButton(buttons, "Settings", ShowSettings);
         var testPanel = new StackPanel();
         var testExpander = new Expander { Header = "Test microphone + track", Content = testPanel, Margin = new Thickness(0, 10, 0, 0) };
         footer.Children.Add(testExpander);
@@ -98,6 +118,8 @@ public sealed class MainWindow : Window
         Closed += (_, _) => testTimer.Stop();
         footer.Children.Add(status);
         status.Margin = new Thickness(0, 10, 0, 0);
+        status.Foreground = (Brush)FindResource("Muted"); status.FontSize = 12;
+        results.ItemTemplate = (DataTemplate)FindResource("TrackRow");
         results.BorderThickness = new Thickness(0); results.Padding = new Thickness(4); root.Children.Add(results);
         search.TextChanged += (_, _) => Refresh();
         results.SelectionChanged += (_, _) =>
@@ -133,6 +155,8 @@ public sealed class MainWindow : Window
         menu.Items.Add("Exit", null, (_, _) => Exit()); tray.ContextMenuStrip = menu; tray.DoubleClick += (_, _) => Reveal();
         SourceInitialized += (_, _) =>
         {
+            int darkMode = 1;
+            DwmSetWindowAttribute(new WindowInteropHelper(this).Handle, 20, ref darkMode, sizeof(int));
             hotkeys = new Hotkeys(new WindowInteropHelper(this).Handle); hotkeys.Open += Reveal; hotkeys.Play += async () => await PlaySelected(); hotkeys.Stop += audio.Stop;
             hotkeys.VolumeDown += () => volume.Value = Math.Clamp(Math.Round(volume.Value - .05, 2), 0, 1);
             hotkeys.VolumeUp += () => volume.Value = Math.Clamp(Math.Round(volume.Value + .05, 2), 0, 1);
@@ -153,6 +177,7 @@ public sealed class MainWindow : Window
         string? selectedId = store.Settings.SelectedTrackId;
         results.ItemsSource = store.Tracks.Where(t => t.Name.Contains(search.Text, StringComparison.OrdinalIgnoreCase)).OrderBy(t => t.Name).ToList();
         results.SelectedItem = results.Items.Cast<Track>().FirstOrDefault(t => t.Id == selectedId);
+        libraryCount.Text = search.Text.Length == 0 ? $"Library · {results.Items.Count} tracks" : $"{results.Items.Count} matches · {store.Tracks.Count} tracks";
         UpdateReadyTrack();
         if (store.Tracks.Count == 0) status.Text = "Import a WAV, MP3, or YouTube video to start.";
     }
@@ -164,6 +189,7 @@ public sealed class MainWindow : Window
         playButton.Content = action;
         playButton.IsEnabled = ready != null;
         selected.Text = ready == null ? "Ready: select a track" : $"Ready: {ready.Name} · {store.Settings.PlayHotkey} to {action.ToLowerInvariant()}";
+        selected.ToolTip = selected.Text;
         current.Text = audio.Current == null ? "No track playing" : (audio.IsPaused ? "Paused: " : audio.IsStarting ? "Resuming: " : "Playing: ") + audio.Current;
 
     }
@@ -185,6 +211,11 @@ public sealed class MainWindow : Window
     private Window Dialog(string title, int height, out StackPanel panel)
     {
         var window = new Window { Owner = this, Title = title, Width = 600, Height = height, MinWidth = 480, MinHeight = 400, FontFamily = FontFamily, FontSize = FontSize, WindowStartupLocation = WindowStartupLocation.CenterScreen };
+        window.SourceInitialized += (_, _) =>
+        {
+            int darkMode = 1;
+            DwmSetWindowAttribute(new WindowInteropHelper(window).Handle, 20, ref darkMode, sizeof(int));
+        };
         panel = new StackPanel { Margin = new Thickness(24) }; window.Content = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         return window;
     }
@@ -245,7 +276,7 @@ public sealed class MainWindow : Window
         if (managementWindow != null) { managementWindow.Activate(); return; }
         var window = Dialog("Library and import", 680, out var panel);
         Label(panel, "Library name / rename selected track"); var name = new TextBox(); panel.Children.Add(name);
-        var library = new ListBox { Height = 170, ItemsSource = store.Tracks.ToList(), Margin = new Thickness(0, 12, 0, 0) }; panel.Children.Add(library);
+        var library = new ListBox { Height = 250, ItemTemplate = (DataTemplate)FindResource("TrackRow"), ItemsSource = store.Tracks.ToList(), Margin = new Thickness(0, 12, 0, 0) }; panel.Children.Add(library);
         library.SelectionChanged += (_, _) => { if (library.SelectedItem is Track t) name.Text = t.Name; };
         var actions = new WrapPanel(); panel.Children.Add(actions);
         var message = new TextBlock { TextWrapping = TextWrapping.Wrap, MaxHeight = 100 };
@@ -291,4 +322,7 @@ public sealed class MainWindow : Window
         try { window.ShowDialog(); } finally { managementWindow = null; }
     }
     private sealed record Device(string Id, string Name) { public override string ToString() => Name; }
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int size);
 }
