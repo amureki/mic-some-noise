@@ -13,17 +13,18 @@ public sealed class Hotkeys : IDisposable
     private (uint Modifiers, uint Key)[] registered = [];
     public event Action? Open;
     public event Action? Play;
-    public event Action? Stop;
+    public event Action? Next;
+    public event Action? Previous;
     public event Action? VolumeDown;
     public event Action? VolumeUp;
     public Hotkeys(IntPtr window) { source = HwndSource.FromHwnd(window)!; source.AddHook(Hook); }
-    public void Apply(string open, string play, string stop, string volumeDown, string volumeUp)
+    public void Apply(string open, string play, string next, string volumeDown, string volumeUp, string previous)
     {
-        var shortcuts = new[] { Parse(open), Parse(play), Parse(stop), Parse(volumeDown), Parse(volumeUp) };
+        var shortcuts = new[] { Parse(open), Parse(play), Parse(next), Parse(volumeDown), Parse(volumeUp), Parse(previous) };
         if (shortcuts.Distinct().Count() != shortcuts.Length)
             throw new InvalidOperationException("All hotkeys must be different.");
-        string[] names = ["Open", "Play", "Stop", "Volume down", "Volume up"];
-        for (int i = 1; i <= 5; i++) UnregisterHotKey(source.Handle, i);
+        string[] names = ["Open", "Play", "Next track", "Volume down", "Volume up", "Previous track"];
+        for (int i = 1; i <= 6; i++) UnregisterHotKey(source.Handle, i);
         try
         {
             for (int i = 0; i < shortcuts.Length; i++)
@@ -33,7 +34,7 @@ public sealed class Hotkeys : IDisposable
         }
         catch (Exception error)
         {
-            for (int i = 1; i <= 5; i++) UnregisterHotKey(source.Handle, i);
+            for (int i = 1; i <= 6; i++) UnregisterHotKey(source.Handle, i);
             bool restored = true;
             for (int i = 0; i < registered.Length; i++)
                 restored &= RegisterHotKey(source.Handle, i + 1, registered[i].Modifiers | 0x4000, registered[i].Key);
@@ -68,14 +69,15 @@ IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
             {
                 case 1: handled = true; Open?.Invoke(); break;
                 case 2: handled = true; Play?.Invoke(); break;
-                case 3: handled = true; Stop?.Invoke(); break;
+                case 3: handled = true; Next?.Invoke(); break;
                 case 4: handled = true; VolumeDown?.Invoke(); break;
                 case 5: handled = true; VolumeUp?.Invoke(); break;
+                case 6: handled = true; Previous?.Invoke(); break;
             }
         }
         return IntPtr.Zero;
     }
-    public void Dispose() { for (int i = 1; i <= 5; i++) UnregisterHotKey(source.Handle, i); source.RemoveHook(Hook); }
+    public void Dispose() { for (int i = 1; i <= 6; i++) UnregisterHotKey(source.Handle, i); source.RemoveHook(Hook); }
     [DllImport("user32.dll", SetLastError = true)] private static extern bool RegisterHotKey(IntPtr hwnd, int id, uint modifiers, uint key);
     [DllImport("user32.dll")] private static extern bool UnregisterHotKey(IntPtr hwnd, int id);
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();

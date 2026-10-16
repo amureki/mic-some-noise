@@ -19,8 +19,9 @@ public sealed class Settings
     public bool IncludeMicrophoneDuringPlayback { get; set; }
     public float MicrophoneVolume { get; set; } = 1f;
     public string OpenHotkey { get; set; } = "Ctrl+Alt+Space";
+    public string PreviousHotkey { get; set; } = "F7";
     public string PlayHotkey { get; set; } = "F8";
-    public string StopHotkey { get; set; } = "F9";
+    public string NextHotkey { get; set; } = "F9";
     public string VolumeDownHotkey { get; set; } = "F10";
     public string VolumeUpHotkey { get; set; } = "F11";
     public bool PushToTalkEnabled { get; set; }
@@ -40,8 +41,6 @@ public sealed class Store
         Directory.CreateDirectory(Audio);
         var savedSettings = Read<JsonElement>("settings.json");
         Settings = savedSettings.ValueKind == JsonValueKind.Object ? savedSettings.Deserialize<Settings>() ?? new() : new();
-        // Replace the previous stop default for existing installations.
-        if (savedSettings.ValueKind == JsonValueKind.Object && !savedSettings.TryGetProperty("PlayHotkey", out _) && Settings.StopHotkey == "Ctrl+Alt+S") Settings.StopHotkey = "F9";
         Tracks = Read<List<Track>>("library.json") ?? new();
     }
     private static T? Read<T>(string name)

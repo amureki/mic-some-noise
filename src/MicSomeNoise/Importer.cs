@@ -43,9 +43,9 @@ public sealed class Importer(Store store)
     }
     public async Task<Track> Youtube(string url, string name, IProgress<string> progress, CancellationToken token)
     {
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != "https" ||
-            !(uri.Host == "youtu.be" || uri.Host == "youtube.com" || uri.Host.EndsWith(".youtube.com", StringComparison.OrdinalIgnoreCase)))
-            throw new InvalidOperationException("Enter an HTTPS YouTube video URL.");
+        url = YoutubeUrl.Normalize(url);
+        var existing = store.Tracks.FirstOrDefault(t => t.SourceUrl == url);
+        if (existing != null) return existing;
         string temp = Path.Combine(Store.Root, "Imports", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temp);
         try

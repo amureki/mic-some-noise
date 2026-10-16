@@ -8,7 +8,7 @@ Play sounds and music in voice chat without leaving your game.
 2. Extract the ZIP and run `MicSomeNoise.exe`. Keep the extracted files together.
 3. Open Settings. Choose your microphone and headphones, then choose **CABLE Input** as the broadcast output. Click **Apply and start audio**.
 4. In Discord or your game, choose **CABLE Output** as the microphone input and your headphones as the output.
-5. Open **Import / library** and add a WAV or MP3 file. Select a track, return to your game, and press **F8**.
+5. Click **Import audio file** in the launcher and add a WAV or MP3 file. Select a track, return to your game, and press **F8**.
 
 Use headphones to avoid feedback. Leave Windows "Listen to this device" off for your microphone and VB-CABLE.
 
@@ -16,12 +16,13 @@ Your voice passes through while no track is playing. During playback, the app se
 
 ## Play a track
 
-Click a track or use the arrow keys to select it. Selecting a track does not play it.
+Click a track or use the arrow keys to select it. Selecting a track does not play it. F7/F9 cycle through the full library in name order and wrap at either end. Use **Stop** in the launcher or tray menu to stop playback.
 
 | Shortcut | Action |
 | --- | --- |
+| F7 | Select the previous track |
 | F8 | Play, pause, or resume the selected track |
-| F9 | Stop and return to the start |
+| F9 | Select the next track |
 | F10 / F11 | Lower / raise track volume |
 | Ctrl+Alt+Space | Open the launcher and search |
 | Escape | Hide the launcher |
@@ -40,7 +41,9 @@ If a crash leaves the key held, press and release it yourself.
 
 Run the included `install-import-tools.ps1` script in PowerShell to install the required tools, then restart the app.
 
-In **Import / library**, paste a public video URL and click **Import YouTube**. Imported tracks work offline. Playlists, live videos, and restricted videos are not supported. Only download audio you have permission to use and that the service allows you to download.
+Paste a public YouTube video URL into the launcher search field and press **Enter**. Press **Esc** to return to your game while it downloads. When ready, the track is selected unless you selected another track during the import. A notification confirms completion without opening the launcher. Press **F8** to play.
+
+Links with playlist or tracking parameters work: only the linked video is imported. An existing video is selected without downloading it again. Use **Cancel import** in the launcher to cancel. Imported tracks work offline. Playlist-only links, live videos, and restricted videos are not supported. Only download audio you have permission to use and that the service allows you to download.
 
 ## Check your audio
 

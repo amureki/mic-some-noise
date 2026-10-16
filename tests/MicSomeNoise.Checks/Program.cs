@@ -1,5 +1,34 @@
 using MicSomeNoise;
 
+const string canonicalVideo = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+foreach (string url in new[]
+{
+    canonicalVideo,
+    canonicalVideo + "&list=PL123&index=8&t=42s",
+    "https://www.youtube.com/watch?list=PL123&v=dQw4w9WgXcQ&index=8",
+    " https://youtu.be/dQw4w9WgXcQ?si=tracking&t=42 ",
+    "https://m.youtube.com/shorts/dQw4w9WgXcQ?feature=share",
+    "https://www.youtube.com/embed/dQw4w9WgXcQ",
+    "http://youtube.com/watch?v=dQw4w9WgXcQ"
+})
+    if (YoutubeUrl.Normalize(url) != canonicalVideo) throw new Exception("Video URL normalization failed: " + url);
+foreach (string url in new[]
+{
+    "https://www.youtube.com/playlist?list=PL123",
+    "https://www.youtube.com/@channel",
+    "https://youtube.com.evil.example/watch?v=dQw4w9WgXcQ",
+    "https://evil.example/watch?v=dQw4w9WgXcQ",
+    "https://www.youtube.com/watch?v=invalid",
+    "file:///watch?v=dQw4w9WgXcQ",
+    "not a URL"
+})
+{
+    try { YoutubeUrl.Normalize(url); }
+    catch (InvalidOperationException) { continue; }
+    throw new Exception("Invalid video URL accepted: " + url);
+}
+Console.WriteLine("PASS: video URLs discard playlist/tracking parameters, accept share/shorts/embed links, and reject playlist-only and invalid URLs.");
+
 var queue = new FloatQueue(8);
 void AssertSamples(float[] expected)
 {

@@ -32,12 +32,17 @@ public sealed class MainWindow : Window
     private IntPtr previous;
     private CancellationTokenSource? importCancellation;
     private bool exiting;
+    private bool refreshing;
+    private long selectionRevision;
+    private readonly TextBlock importStatus = new() { TextWrapping = TextWrapping.Wrap };
+    private readonly Button importButton;
+    private readonly Button cancelImportButton;
     private Window? managementWindow;
 
     public MainWindow()
     {
         Style = (Style)FindResource(typeof(Window));
-        Title = "Mic Some Noise 0.1.12"; Width = 680; Height = 800; MinWidth = 560; MinHeight = 600;
+        Title = "Mic Some Noise 0.1.12"; Width = 800; Height = 900; MinWidth = 560; MinHeight = 600;
         MinHeight = Math.Min(MinHeight, SystemParameters.WorkArea.Height);
         MinWidth = Math.Min(MinWidth, SystemParameters.WorkArea.Width);
         Height = Math.Min(Height, SystemParameters.WorkArea.Height);
@@ -53,17 +58,29 @@ public sealed class MainWindow : Window
         var heading = new DockPanel { Margin = new Thickness(0, 0, 0, 18) };
         var navigation = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right };
         DockPanel.SetDock(navigation, Dock.Right); heading.Children.Add(navigation);
-        AddButton(navigation, "Import / library", ShowLibrary);
+        AddButton(navigation, "Library", ShowLibrary);
         AddButton(navigation, "Settings", ShowSettings);
         heading.Children.Add(new TextBlock { Text = "Mic Some Noise", FontSize = 24, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
         header.Children.Add(heading);
-        search.Margin = new Thickness(0, 0, 0, 12); search.Padding = new Thickness(10); search.ToolTip = "Search your local library";
-        System.Windows.Automation.AutomationProperties.SetName(search, "Search sounds");
+        search.Margin = new Thickness(0, 0, 0, 12); search.Padding = new Thickness(10); search.ToolTip = "Search tracks or paste a YouTube link";
+        System.Windows.Automation.AutomationProperties.SetName(search, "Search tracks or paste a YouTube link");
         var searchContainer = new Grid(); searchContainer.Children.Add(search);
-        var searchHint = new TextBlock { Text = "Search tracks…", Foreground = (Brush)FindResource("Muted"), Margin = new Thickness(11, 11, 11, 0), IsHitTestVisible = false };
+        var searchHint = new TextBlock { Text = "Search tracks or paste a YouTube link…", Foreground = (Brush)FindResource("Muted"), Margin = new Thickness(11, 11, 11, 0), IsHitTestVisible = false };
         searchContainer.Children.Add(searchHint);
         search.TextChanged += (_, _) => searchHint.Visibility = search.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         header.Children.Add(searchContainer);
+        var importActions = new WrapPanel(); header.Children.Add(importActions);
+        importButton = AddButton(importActions, "Import YouTube · Enter", async () => await ImportTrack(search.Text.Trim()));
+        importButton.Visibility = Visibility.Collapsed;
+        AddButton(importActions, "Import audio file", async () =>
+        {
+            var picker = new Microsoft.Win32.OpenFileDialog { Filter = "Audio|*.wav;*.mp3" };
+            if (picker.ShowDialog(this) == true) await ImportTrack(null, picker.FileName);
+        });
+        cancelImportButton = AddButton(importActions, "Cancel import", () => importCancellation?.Cancel());
+        cancelImportButton.Visibility = Visibility.Collapsed;
+        importStatus.Margin = new Thickness(0, 4, 0, 8);
+        header.Children.Add(new ScrollViewer { Content = importStatus, MaxHeight = 90, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
         libraryCount.Foreground = (Brush)FindResource("Muted"); libraryCount.FontSize = 12; libraryCount.Margin = new Thickness(2, 0, 0, 8);
         header.Children.Add(libraryCount);
         var footer = new StackPanel(); DockPanel.SetDock(footer, Dock.Bottom); root.Children.Add(footer);
@@ -83,8 +100,10 @@ public sealed class MainWindow : Window
         selected.TextWrapping = TextWrapping.NoWrap; selected.TextTrimming = TextTrimming.CharacterEllipsis;
         footer.Children.Insert(2, selected);
         var buttons = new WrapPanel(); footer.Children.Add(buttons);
+        AddButton(buttons, "Previous", () => SelectAdjacent(-1));
         playButton = AddButton(buttons, "Play", async () => await PlaySelected());
         playButton.Style = (Style)FindResource("PrimaryButton"); playButton.MinWidth = 100;
+        AddButton(buttons, "Next", () => SelectAdjacent(1));
         AddButton(buttons, "Stop", () => audio.Stop());
         var testPanel = new StackPanel();
         var testExpander = new Expander { Header = "Test microphone + track", Content = testPanel, Margin = new Thickness(0, 10, 0, 0) };
@@ -125,15 +144,22 @@ public sealed class MainWindow : Window
         results.SelectionChanged += (_, _) =>
         {
             if (results.SelectedItem is not Track track) return;
+            if (!refreshing && store.Settings.SelectedTrackId != track.Id) selectionRevision++;
             store.Settings.SelectedTrackId = track.Id;
             UpdateReadyTrack();
             try { store.SaveSettings(); } catch (Exception e) { status.Text = "Could not save the selection: " + e.Message; }
         };
 
 
-        PreviewKeyDown += (_, e) =>
+        PreviewKeyDown += async (_, e) =>
         {
             if (e.Key == Key.Escape) { Dismiss(); e.Handled = true; }
+            if (e.Key == Key.Enter && search.IsKeyboardFocusWithin && IsUrlInput)
+            {
+                e.Handled = true;
+                await ImportTrack(search.Text.Trim());
+                return;
+            }
             if (!search.IsKeyboardFocusWithin && !results.IsKeyboardFocusWithin) return;
             if (e.Key is Key.Down or Key.Up)
             {
@@ -157,11 +183,11 @@ public sealed class MainWindow : Window
         {
             int darkMode = 1;
             DwmSetWindowAttribute(new WindowInteropHelper(this).Handle, 20, ref darkMode, sizeof(int));
-            hotkeys = new Hotkeys(new WindowInteropHelper(this).Handle); hotkeys.Open += Reveal; hotkeys.Play += async () => await PlaySelected(); hotkeys.Stop += audio.Stop;
+            hotkeys = new Hotkeys(new WindowInteropHelper(this).Handle); hotkeys.Open += Reveal; hotkeys.Play += async () => await PlaySelected(); hotkeys.Next += () => SelectAdjacent(1); hotkeys.Previous += () => SelectAdjacent(-1);
             hotkeys.VolumeDown += () => volume.Value = Math.Clamp(Math.Round(volume.Value - .05, 2), 0, 1);
             hotkeys.VolumeUp += () => volume.Value = Math.Clamp(Math.Round(volume.Value + .05, 2), 0, 1);
-            try { hotkeys.Apply(store.Settings.OpenHotkey, store.Settings.PlayHotkey, store.Settings.StopHotkey, store.Settings.VolumeDownHotkey, store.Settings.VolumeUpHotkey); } catch (Exception e) { status.Text = e.Message; }
-            if (store.Settings.Cable != null) try { var s = store.Settings; pushToTalk.Configure(s.PushToTalkEnabled, s.PushToTalkEnabled ? Hotkeys.ValidatePushToTalk(s.PushToTalkKey, s.OpenHotkey, s.PlayHotkey, s.StopHotkey, s.VolumeDownHotkey, s.VolumeUpHotkey) : (ushort)0); audio.Start(s); } catch (Exception e) { status.Text = e.Message; }
+            try { hotkeys.Apply(store.Settings.OpenHotkey, store.Settings.PlayHotkey, store.Settings.NextHotkey, store.Settings.VolumeDownHotkey, store.Settings.VolumeUpHotkey, store.Settings.PreviousHotkey); } catch (Exception e) { status.Text = e.Message; }
+            if (store.Settings.Cable != null) try { var s = store.Settings; pushToTalk.Configure(s.PushToTalkEnabled, s.PushToTalkEnabled ? Hotkeys.ValidatePushToTalk(s.PushToTalkKey, s.OpenHotkey, s.PlayHotkey, s.NextHotkey, s.VolumeDownHotkey, s.VolumeUpHotkey, s.PreviousHotkey) : (ushort)0); audio.Start(s); } catch (Exception e) { status.Text = e.Message; }
         };
         Loaded += (_, _) => { search.Focus(); if (store.Settings.Cable == null) ShowSettings(); };
         Closing += (_, e) => { if (!exiting) { e.Cancel = true; Dismiss(); } };
@@ -174,13 +200,76 @@ public sealed class MainWindow : Window
     }
     private void Refresh()
     {
+        refreshing = true;
+        importButton.Visibility = IsUrlInput ? Visibility.Visible : Visibility.Collapsed;
+        importButton.IsEnabled = importCancellation == null;
         string? selectedId = store.Settings.SelectedTrackId;
-        results.ItemsSource = store.Tracks.Where(t => t.Name.Contains(search.Text, StringComparison.OrdinalIgnoreCase)).OrderBy(t => t.Name).ToList();
+        results.ItemsSource = store.Tracks.Where(t => IsUrlInput || t.Name.Contains(search.Text, StringComparison.OrdinalIgnoreCase)).OrderBy(t => t.Name).ToList();
         results.SelectedItem = results.Items.Cast<Track>().FirstOrDefault(t => t.Id == selectedId);
-        libraryCount.Text = search.Text.Length == 0 ? $"Library · {results.Items.Count} tracks" : $"{results.Items.Count} matches · {store.Tracks.Count} tracks";
+        refreshing = false;
+        if (results.SelectedItem != null) results.ScrollIntoView(results.SelectedItem);
+        libraryCount.Text = (search.Text.Length == 0 || IsUrlInput) ? $"Library · {results.Items.Count} tracks" : $"{results.Items.Count} matches · {store.Tracks.Count} tracks";
         UpdateReadyTrack();
         if (store.Tracks.Count == 0) status.Text = "Import a WAV, MP3, or YouTube video to start.";
     }
+    private bool IsUrlInput => search.Text.TrimStart().StartsWith("https://", StringComparison.OrdinalIgnoreCase) || search.Text.TrimStart().StartsWith("http://", StringComparison.OrdinalIgnoreCase);
+
+    private void SelectAdjacent(int direction)
+    {
+        var tracks = store.Tracks.OrderBy(t => t.Name).ToList();
+        if (tracks.Count == 0) return;
+        int index = tracks.FindIndex(t => t.Id == store.Settings.SelectedTrackId);
+        var track = tracks[index < 0 ? (direction > 0 ? 0 : tracks.Count - 1) : (index + direction + tracks.Count) % tracks.Count];
+        selectionRevision++;
+        store.Settings.SelectedTrackId = track.Id;
+        search.Clear();
+        Refresh();
+        try { store.SaveSettings(); } catch (Exception e) { status.Text = "Could not save the selection: " + e.Message; }
+    }
+
+    private async Task ImportTrack(string? url, string? file = null)
+    {
+        if (importCancellation != null) { importStatus.Text = "An import is already running. Esc returns to your game."; return; }
+        using var cancellation = new CancellationTokenSource();
+        importCancellation = cancellation;
+        long revision = selectionRevision;
+        cancelImportButton.Visibility = Visibility.Visible;
+        Refresh();
+        try
+        {
+            importStatus.Text = "Importing… Esc returns to your game. The download will continue.";
+            var importer = new Importer(store);
+            var progress = new Progress<string>(text =>
+            {
+                if (importCancellation == cancellation)
+                    importStatus.Text = text.StartsWith("[download]", StringComparison.Ordinal) ? text + " · Esc returns to your game." : "Preparing audio… Esc returns to your game.";
+            });
+            Track track = url != null ? await importer.Youtube(url, "", progress, cancellation.Token) : await importer.Local(file!, "", cancellation.Token);
+            bool select = revision == selectionRevision;
+            if (select)
+            {
+                store.Settings.SelectedTrackId = track.Id;
+                search.Clear();
+                store.SaveSettings();
+            }
+            Refresh();
+            importStatus.Text = select ? $"Ready: {track.Name} · {store.Settings.PlayHotkey} to play." : $"Imported: {track.Name}. Your selection is unchanged.";
+            if (!IsVisible) tray.ShowBalloonTip(4000, "Track ready", importStatus.Text, Forms.ToolTipIcon.Info);
+        }
+        catch (OperationCanceledException) { importStatus.Text = "Import cancelled."; }
+        catch (Exception e)
+        {
+            importStatus.Text = "Import failed: " + e.Message;
+            if (!IsVisible) tray.ShowBalloonTip(5000, "Import failed", e.Message, Forms.ToolTipIcon.Warning);
+        }
+        finally
+        {
+            importCancellation = null;
+            cancelImportButton.Visibility = Visibility.Collapsed;
+            Refresh();
+        }
+    }
+
     private void UpdateReadyTrack()
     {
         var ready = store.Tracks.FirstOrDefault(t => t.Id == store.Settings.SelectedTrackId);
@@ -240,7 +329,8 @@ public sealed class MainWindow : Window
         Label(panel, "Microphone volume"); var gain = new Slider { Minimum = 0, Maximum = 2, Value = store.Settings.MicrophoneVolume }; panel.Children.Add(gain);
         Label(panel, "Open shortcut"); var open = new TextBox { Text = store.Settings.OpenHotkey }; panel.Children.Add(open);
         Label(panel, "Play / pause shortcut"); var play = new TextBox { Text = store.Settings.PlayHotkey }; panel.Children.Add(play);
-        Label(panel, "Stop shortcut"); var stop = new TextBox { Text = store.Settings.StopHotkey }; panel.Children.Add(stop);
+        Label(panel, "Previous track shortcut"); var previousTrack = new TextBox { Text = store.Settings.PreviousHotkey }; panel.Children.Add(previousTrack);
+        Label(panel, "Next track shortcut"); var next = new TextBox { Text = store.Settings.NextHotkey }; panel.Children.Add(next);
         Label(panel, "Track volume down shortcut"); var volumeDown = new TextBox { Text = store.Settings.VolumeDownHotkey }; panel.Children.Add(volumeDown);
         Label(panel, "Track volume up shortcut"); var volumeUp = new TextBox { Text = store.Settings.VolumeUpHotkey }; panel.Children.Add(volumeUp);
         Label(panel, "Use a single key such as F8 or F9, or modifiers plus a key such as Ctrl+Alt+Space. If push-to-talk holds a modifier, include it in the shortcut. Apply again after a device disconnect or sleep.");
@@ -258,12 +348,12 @@ public sealed class MainWindow : Window
             {
                 if (mic.SelectedValue == null || hp.SelectedValue == null || cable.SelectedValue == null) throw new InvalidOperationException("Select all three audio devices.");
                 if (!int.TryParse(pttDelay.Text, out int delayMs) || delayMs < 0 || delayMs > 2000) throw new InvalidOperationException("Enter a push-to-talk delay from 0 to 2000 milliseconds.");
-                ushort pttCode = automaticPtt.IsChecked == true ? Hotkeys.ValidatePushToTalk(pttKey.Text, open.Text, play.Text, stop.Text, volumeDown.Text, volumeUp.Text) : (ushort)0;
-                hotkeys!.Apply(open.Text, play.Text, stop.Text, volumeDown.Text, volumeUp.Text);
+                ushort pttCode = automaticPtt.IsChecked == true ? Hotkeys.ValidatePushToTalk(pttKey.Text, open.Text, play.Text, next.Text, volumeDown.Text, volumeUp.Text, previousTrack.Text) : (ushort)0;
+                hotkeys!.Apply(open.Text, play.Text, next.Text, volumeDown.Text, volumeUp.Text, previousTrack.Text);
                 audio.Stop();
                 pushToTalk.Configure(automaticPtt.IsChecked == true, pttCode);
                 var s = store.Settings; s.Microphone = (string)mic.SelectedValue; s.Headphones = (string)hp.SelectedValue; s.Cable = (string)cable.SelectedValue;
-                s.IncludeMicrophoneDuringPlayback = includeMicrophone.IsChecked == true; s.MicrophoneVolume = (float)gain.Value; s.OpenHotkey = open.Text; s.PlayHotkey = play.Text; s.StopHotkey = stop.Text; s.VolumeDownHotkey = volumeDown.Text; s.VolumeUpHotkey = volumeUp.Text; s.PushToTalkEnabled = automaticPtt.IsChecked == true; s.PushToTalkKey = pttKey.Text.Trim(); s.PushToTalkDelayMs = delayMs;
+                s.IncludeMicrophoneDuringPlayback = includeMicrophone.IsChecked == true; s.MicrophoneVolume = (float)gain.Value; s.OpenHotkey = open.Text; s.PlayHotkey = play.Text; s.NextHotkey = next.Text; s.PreviousHotkey = previousTrack.Text; s.VolumeDownHotkey = volumeDown.Text; s.VolumeUpHotkey = volumeUp.Text; s.PushToTalkEnabled = automaticPtt.IsChecked == true; s.PushToTalkKey = pttKey.Text.Trim(); s.PushToTalkDelayMs = delayMs;
                 audio.Start(s); store.SaveSettings(); Refresh(); status.Text = "Audio ready. Select a track; use Play or your play hotkey. Escape hides."; window.Close();
             }
             catch (Exception e) { error.Text = e.Message; }
@@ -274,8 +364,8 @@ public sealed class MainWindow : Window
     private void ShowLibrary()
     {
         if (managementWindow != null) { managementWindow.Activate(); return; }
-        var window = Dialog("Library and import", 680, out var panel);
-        Label(panel, "Library name / rename selected track"); var name = new TextBox(); panel.Children.Add(name);
+        var window = Dialog("Library", 680, out var panel);
+        Label(panel, "Rename selected track"); var name = new TextBox(); panel.Children.Add(name);
         var library = new ListBox { Height = 250, ItemTemplate = (DataTemplate)FindResource("TrackRow"), ItemsSource = store.Tracks.ToList(), Margin = new Thickness(0, 12, 0, 0) }; panel.Children.Add(library);
         library.SelectionChanged += (_, _) => { if (library.SelectedItem is Track t) name.Text = t.Name; };
         var actions = new WrapPanel(); panel.Children.Add(actions);
@@ -291,33 +381,7 @@ public sealed class MainWindow : Window
             if (library.SelectedItem is not Track t) return;
             try { int i = store.Tracks.IndexOf(t); store.Tracks.Remove(t); try { store.SaveLibrary(); } catch { store.Tracks.Insert(i, t); throw; } Reload(); message.Text = "Removed. The copied audio remains in the Audio folder."; } catch (Exception e) { message.Text = e.Message; }
         });
-        Label(panel, "YouTube video URL"); var url = new TextBox(); panel.Children.Add(url);
-        Label(panel, "Import one public, non-live video that you have permission to download. Requires yt-dlp, FFmpeg, and Deno. Existing tracks work offline.");
-        var imports = new WrapPanel(); panel.Children.Add(imports);
-        async Task Import(bool youtube)
-        {
-            if (importCancellation != null) { message.Text = "An import is already running."; return; }
-            string? file = null;
-            if (!youtube)
-            {
-                var picker = new Microsoft.Win32.OpenFileDialog { Filter = "Audio|*.wav;*.mp3" };
-                if (picker.ShowDialog(window) != true) return; file = picker.FileName;
-            }
-            using var cancel = new CancellationTokenSource(); importCancellation = cancel; imports.IsEnabled = false;
-            try
-            {
-                message.Text = "Importing…"; var importer = new Importer(store);
-                if (youtube) await importer.Youtube(url.Text.Trim(), name.Text, new Progress<string>(text => message.Text = text), cancel.Token);
-                else await importer.Local(file!, name.Text, cancel.Token);
-                Reload(); message.Text = "Imported. Select the track in the launcher to play it.";
-            }
-            catch (OperationCanceledException) { message.Text = "Import cancelled."; }
-            catch (Exception e) { message.Text = e.Message; }
-            finally { importCancellation = null; imports.IsEnabled = true; }
-        }
-        AddButton(imports, "Import local file", async () => await Import(false)); AddButton(imports, "Import YouTube", async () => await Import(true));
-        AddButton(panel, "Cancel import", () => importCancellation?.Cancel()); panel.Children.Add(message);
-        window.Closing += (_, e) => { if (importCancellation != null) { importCancellation.Cancel(); e.Cancel = true; message.Text = "Cancelling. Close this window when cancellation finishes."; } };
+        panel.Children.Add(message);
         managementWindow = window;
         try { window.ShowDialog(); } finally { managementWindow = null; }
     }
