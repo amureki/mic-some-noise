@@ -42,7 +42,7 @@ If a crash leaves the key held, press and release it yourself.
 
 ## Import from YouTube
 
-Run the included `install-import-tools.ps1` script in PowerShell to install the required tools, then restart the app.
+Run the included `tools/install-import-tools.ps1` script in PowerShell to install the required tools, then restart the app.
 
 Paste a public YouTube video URL into the launcher search field and press **Enter**. Press **Esc** to return to your game while it downloads. When ready, the track is selected unless you selected another track during the import. A notification confirms completion without opening the launcher. Press **F8** to play.
 
@@ -59,6 +59,10 @@ If audio stops after sleep or a device change, open Settings, select your device
 If you exit the app, switch Discord or your game back to your physical microphone to keep talking.
 
 ## Updates and your library
+
+Run `MicSomeNoise.exe` from the extracted folder. It includes the required .NET/WPF runtime and NAudio audio libraries; no separate .NET installation is needed. Native libraries extract to `%TEMP%/.net` when the app starts.
+
+`README.md` contains these instructions. `tools/` contains the optional YouTube import installer. `licenses/` contains license terms and third-party notices; keep it with the app when you redistribute it. Local WAV and MP3 playback does not need the import tools.
 
 Get updates from [Releases](https://github.com/amureki/mic-some-noise/releases/latest). Exit the app, extract the new ZIP into a new folder, and run it. Your settings and library carry over.
 

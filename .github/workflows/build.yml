@@ -26,4 +26,4 @@ jobs:
         with:
           dotnet-version: '10.0.x'
       - run: dotnet run --project tests/MicSomeNoise.Checks -c Release
-      - run: dotnet build src/MicSomeNoise -c Release
+      - run: ./scripts/publish.ps1 -SelfContained

@@ -42,7 +42,7 @@ To let the app hold the key for you, enable **Hold push-to-talk while a track pl
 
 ## Import from YouTube
 
-YouTube import needs yt-dlp, FFmpeg, and Deno. On Windows, run the included `install-import-tools.ps1` script in PowerShell, then restart the app.
+YouTube import needs yt-dlp, FFmpeg, and Deno. On Windows, run the included `tools/install-import-tools.ps1` script in PowerShell, then restart the app.
 
 Paste a public YouTube video URL into the launcher search field and press **Enter**. Press **Esc** to return to your game while it downloads. When ready, the track is selected unless you selected another track during the import. A notification confirms completion without opening the launcher. Press **F8** to play.
 
@@ -59,6 +59,15 @@ If audio stops after sleep or a device change, open Settings, select your device
 If you exit the app, switch Discord or your game back to your physical microphone to keep talking.
 
 ## Updates and your library
+
+The extracted release contains:
+
+- `MicSomeNoise.exe`: the app, NAudio audio libraries, and the .NET/WPF runtime. You do not need to install .NET separately.
+- `README.md`: setup and usage instructions.
+- `tools/`: an optional installer script for YouTube import tools. Local WAV and MP3 playback does not need these tools.
+- `licenses/`: license terms and third-party notices. Keep these with the app when you redistribute it.
+
+The runtime and audio libraries are required and bundled inside the EXE. Native libraries extract to `%TEMP%/.net` when the app starts. Bundling reduces the number of visible files, not the amount of runtime code shipped.
 
 Get updates from [Releases](https://github.com/amureki/mic-some-noise/releases). Exit the app, extract the new ZIP into a new folder, and run it. Your settings and library carry over.
 
