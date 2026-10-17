@@ -55,7 +55,7 @@ public sealed class MainWindow : Window
     public MainWindow()
     {
         Style = (Style)FindResource(typeof(Window));
-        Title = "Mic Some Noise 0.1.13"; Width = 1040; Height = 820; MinWidth = 560; MinHeight = 600;
+        Title = "Mic Some Noise 0.1.14"; Width = 1040; Height = 820; MinWidth = 560; MinHeight = 600;
         MinHeight = Math.Min(MinHeight, SystemParameters.WorkArea.Height);
         MinWidth = Math.Min(MinWidth, SystemParameters.WorkArea.Width);
         Height = Math.Min(Height, SystemParameters.WorkArea.Height);
