@@ -37,7 +37,7 @@ public sealed class AudioEngine : IDisposable
     private long microphoneMuteUntil;
     public bool IncludeMicrophoneDuringPlayback { get; set; }
     public Func<bool> MicrophoneHoldPressed { get; set; } = () => false;
-    private float trackVolume = .5f, micVolume = 1;
+    private float trackVolume = .5f, headphoneTrackVolume = .5f, micVolume = 1;
     public string? Current { get; private set; }
     public string? CurrentTrackId { get; private set; }
     public bool IsPaused { get; private set; }
@@ -49,6 +49,7 @@ public sealed class AudioEngine : IDisposable
     public event Action? TrackFinished;
     public bool Running => broadcast != null;
     public float TrackVolume { get => trackVolume; set => trackVolume = Math.Clamp(value, 0, 1); }
+    public float HeadphoneTrackVolume { get => headphoneTrackVolume; set => headphoneTrackVolume = Math.Clamp(value, 0, 1); }
     public float MicrophoneVolume { get => micVolume; set => micVolume = Math.Clamp(value, 0, 2); }
 
     public void Start(Settings settings)
@@ -79,6 +80,7 @@ public sealed class AudioEngine : IDisposable
             automaticPushToTalk = settings.PushToTalkEnabled;
             playbackStartDelayMs = settings.PushToTalkEnabled ? Math.Clamp(settings.PushToTalkDelayMs, 0, 2000) : 0;
             TrackVolume = settings.TrackVolume;
+            HeadphoneTrackVolume = settings.HeadphoneTrackVolume;
             MicrophoneVolume = settings.MicrophoneVolume;
             capture.StartRecording();
 
@@ -195,14 +197,15 @@ public sealed class AudioEngine : IDisposable
             if (!mix)
             {
                 monitor.Read(buffer, offset, count);
+                for (int i = offset; i < offset + count; i++) buffer[i] *= headphoneTrackVolume;
                 testRecording.ReadPreview(buffer, offset, count);
                 return count;
             }
 
             bool readingTrack = track != null && !IsPaused && !IsStarting;
             int got = readingTrack ? track!.Read(buffer, offset, count) : 0;
-            for (int i = 0; i < got; i++) buffer[offset + i] *= trackVolume;
             monitor.Write(buffer, offset, count);
+            for (int i = 0; i < got; i++) buffer[offset + i] *= trackVolume;
             if (readingTrack && got == 0)
             {
                 track = null; reader?.Dispose(); reader = null; Current = null; CurrentTrackId = null;

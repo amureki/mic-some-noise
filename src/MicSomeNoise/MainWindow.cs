@@ -117,22 +117,35 @@ public sealed class MainWindow : Window
         current.Margin = new Thickness(0, 0, 0, 4); footer.Children.Add(current);
         selected.TextWrapping = TextWrapping.NoWrap; selected.TextTrimming = TextTrimming.CharacterEllipsis;
         footer.Children.Add(selected);
-        var controls = new DockPanel { LastChildFill = true, Margin = new Thickness(0, 6, 0, 0) }; footer.Children.Add(controls);
-        var buttons = new WrapPanel(); DockPanel.SetDock(buttons, Dock.Left); controls.Children.Add(buttons);
+        var buttons = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) }; footer.Children.Add(buttons);
         AddButton(buttons, "Previous", () => SelectAdjacent(-1));
         playButton = AddButton(buttons, "Play", async () => await PlaySelected());
         playButton.Style = (Style)FindResource("PrimaryButton"); playButton.MinWidth = 80;
         AddButton(buttons, "Next", () => SelectAdjacent(1));
         AddButton(buttons, "Stop", () => audio.Stop());
-        var volumeControls = new StackPanel { Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center }; controls.Children.Add(volumeControls);
-        var volume = new Slider { Minimum = 0, Maximum = 1, Value = store.Settings.TrackVolume, ToolTip = "Track volume" };
-        System.Windows.Automation.AutomationProperties.SetName(volume, "Track volume");
-        var volumeLabel = new TextBlock { Text = $"Volume: {volume.Value:P0}", FontSize = 12 }; volumeControls.Children.Add(volumeLabel); volumeControls.Children.Add(volume);
+        var volumes = new Grid { Margin = new Thickness(0, 12, 0, 0) }; footer.Children.Add(volumes);
+        volumes.ColumnDefinitions.Add(new ColumnDefinition());
+        volumes.ColumnDefinitions.Add(new ColumnDefinition());
+        var volumeControls = new StackPanel { Margin = new Thickness(0, 0, 12, 0) }; volumes.Children.Add(volumeControls);
+        var volume = new Slider { Minimum = 0, Maximum = 1, Value = store.Settings.TrackVolume, ToolTip = "Track volume sent to voice chat" };
+        System.Windows.Automation.AutomationProperties.SetName(volume, "Broadcast track volume");
+        var volumeLabel = new TextBlock { Text = $"Broadcast track: {volume.Value:P0}", FontSize = 12 }; volumeControls.Children.Add(volumeLabel); volumeControls.Children.Add(volume);
         volume.ValueChanged += (_, _) =>
         {
             audio.TrackVolume = (float)volume.Value;
             store.Settings.TrackVolume = (float)volume.Value;
-            volumeLabel.Text = $"Volume: {volume.Value:P0}";
+            volumeLabel.Text = $"Broadcast track: {volume.Value:P0}";
+            try { store.SaveSettings(); } catch (Exception e) { status.Text = "Could not save volume: " + e.Message; }
+        };
+        var headphoneControls = new StackPanel { Margin = new Thickness(12, 0, 0, 0) }; Grid.SetColumn(headphoneControls, 1); volumes.Children.Add(headphoneControls);
+        var headphoneVolume = new Slider { Minimum = 0, Maximum = 1, Value = store.Settings.HeadphoneTrackVolume, ToolTip = "Track volume in your headphones only" };
+        System.Windows.Automation.AutomationProperties.SetName(headphoneVolume, "Headphone track volume");
+        var headphoneLabel = new TextBlock { Text = $"Headphone track: {headphoneVolume.Value:P0}", FontSize = 12 }; headphoneControls.Children.Add(headphoneLabel); headphoneControls.Children.Add(headphoneVolume);
+        headphoneVolume.ValueChanged += (_, _) =>
+        {
+            audio.HeadphoneTrackVolume = (float)headphoneVolume.Value;
+            store.Settings.HeadphoneTrackVolume = (float)headphoneVolume.Value;
+            headphoneLabel.Text = $"Headphone track: {headphoneVolume.Value:P0}";
             try { store.SaveSettings(); } catch (Exception e) { status.Text = "Could not save volume: " + e.Message; }
         };
 
@@ -504,8 +517,8 @@ public sealed class MainWindow : Window
         Label(panel, "Play / pause shortcut"); var play = new TextBox { Text = store.Settings.PlayHotkey }; panel.Children.Add(play);
         Label(panel, "Previous track shortcut"); var previousTrack = new TextBox { Text = store.Settings.PreviousHotkey }; panel.Children.Add(previousTrack);
         Label(panel, "Next track shortcut"); var next = new TextBox { Text = store.Settings.NextHotkey }; panel.Children.Add(next);
-        Label(panel, "Track volume down shortcut"); var volumeDown = new TextBox { Text = store.Settings.VolumeDownHotkey }; panel.Children.Add(volumeDown);
-        Label(panel, "Track volume up shortcut"); var volumeUp = new TextBox { Text = store.Settings.VolumeUpHotkey }; panel.Children.Add(volumeUp);
+        Label(panel, "Broadcast track volume down shortcut"); var volumeDown = new TextBox { Text = store.Settings.VolumeDownHotkey }; panel.Children.Add(volumeDown);
+        Label(panel, "Broadcast track volume up shortcut"); var volumeUp = new TextBox { Text = store.Settings.VolumeUpHotkey }; panel.Children.Add(volumeUp);
         Label(panel, "Use a single key such as F8 or F9, or modifiers plus a key such as Ctrl+Alt+Space. If push-to-talk holds a modifier, include it in the shortcut. Apply again after a device disconnect or sleep.");
         var automaticPtt = new CheckBox { Content = "Hold push-to-talk while a track plays", IsChecked = store.Settings.PushToTalkEnabled, Margin = new Thickness(0, 12, 0, 5) }; panel.Children.Add(automaticPtt);
         Label(panel, "Game push-to-talk key"); var pttKey = new TextBox { Text = store.Settings.PushToTalkKey, IsEnabled = automaticPtt.IsChecked == true }; panel.Children.Add(pttKey);

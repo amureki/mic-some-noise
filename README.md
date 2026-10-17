@@ -24,11 +24,13 @@ Your voice passes through while no track is playing. During playback, the app se
 | F7 | Select the previous track |
 | F8 | Play, pause, or resume the selected track |
 | F9 | Select the next track |
-| F10 / F11 | Lower / raise track volume |
+| F10 / F11 | Lower / raise broadcast track volume |
 | Ctrl+Alt+Space | Open the launcher and search |
 | Escape | Hide the launcher |
 
 Click a track or use the arrow keys to select it. Selecting a track does not play it. Use Enter in search or the track list to play, pause, or resume the selected result. Previous/Next and F7/F9 cycle through the search results in name order and wrap at either end. Clear search to cycle through the full library. Use **Stop** in the launcher or tray menu to stop playback. Shortcuts work while the launcher is hidden, and you can change them in Settings.
+
+Use **Broadcast track** to set the track volume sent to voice chat and **Headphone track** to set the track volume you hear. Both controls save automatically. For example, set broadcast to 100% and headphones to 20% to hear the game over the track. Either control can mute its output at 0% without changing the other. These controls do not change microphone or game volume. Test playback uses the recorded broadcast mix.
 
 Use the tray menu to exit. Closing the launcher hides it and keeps audio running.
 

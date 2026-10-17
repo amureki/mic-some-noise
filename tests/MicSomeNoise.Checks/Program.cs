@@ -83,7 +83,7 @@ using (var engine = new AudioEngine { IncludeMicrophoneDuringPlayback = true })
         if (samples.Skip(2).Take(count + 2).Any(x => x != 0)) throw new Exception("Microphone leaked into headphones with no track.");
     }
     typeof(AudioEngine).GetField("track", flags)!.SetValue(engine, new ConstantSamples(.25f));
-    engine.TrackVolume = 1;
+    engine.TrackVolume = 1; engine.HeadphoneTrackVolume = 1;
     engine.Stop();
     typeof(AudioEngine).GetField("track", flags)!.SetValue(engine, new ConstantSamples(.25f));
     broadcast.Read(samples, 0, 200);
@@ -97,6 +97,45 @@ using (var engine = new AudioEngine { IncludeMicrophoneDuringPlayback = true })
     if (samples.Take(200).Any(x => x != 0)) throw new Exception("Headphones not silent after stop.");
 }
 Console.WriteLine("PASS: production output providers isolate microphone from headphones, mix tracks, and preserve speech after stop. Windows endpoint routing is not covered.");
+
+using (var engine = new AudioEngine { IncludeMicrophoneDuringPlayback = true })
+{
+    var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+    typeof(AudioEngine).GetField("microphoneSamples", flags)!.SetValue(engine, new ConstantSamples(.25f));
+    typeof(AudioEngine).GetField("track", flags)!.SetValue(engine, new ConstantSamples(.5f));
+    var output = typeof(AudioEngine).GetNestedType("Output", System.Reflection.BindingFlags.NonPublic)!;
+    var broadcast = new NAudio.Wave.SampleProviders.SampleToWaveProvider((NAudio.Wave.ISampleProvider)Activator.CreateInstance(output, engine, true)!);
+    var headphones = new NAudio.Wave.SampleProviders.SampleToWaveProvider((NAudio.Wave.ISampleProvider)Activator.CreateInstance(output, engine, false)!);
+    var bytes = new byte[536];
+    foreach (float broadcastVolume in new[] { 0f, .25f, 1f })
+    foreach (float headphoneVolume in new[] { 0f, .25f, 1f })
+    {
+        engine.TrackVolume = broadcastVolume;
+        engine.HeadphoneTrackVolume = 1;
+        Array.Fill(bytes, (byte)0x7F);
+        broadcast.Read(bytes, 8, 512);
+        for (int i = 8; i < 520; i += 4)
+            if (BitConverter.ToSingle(bytes, i) != .5f * broadcastVolume + .25f)
+                throw new Exception("Headphone volume changed broadcast or microphone volume.");
+        // A live volume change must also apply to audio already queued for headphones.
+        engine.HeadphoneTrackVolume = headphoneVolume;
+        Array.Fill(bytes, (byte)0x7F);
+        headphones.Read(bytes, 8, 520);
+        for (int i = 8; i < 528; i += 4)
+        {
+            float expected = i < 520 ? .5f * headphoneVolume : 0;
+            if (BitConverter.ToSingle(bytes, i) != expected)
+                throw new Exception("Headphone gain depends on broadcast gain, leaks microphone, or leaves dirty underflow samples.");
+        }
+        if (bytes.Take(8).Concat(bytes.Skip(528)).Any(x => x != 0x7F))
+            throw new Exception("Headphone read modified bytes outside the requested range.");
+    }
+}
+var volumeSettings = new Settings { TrackVolume = 1, HeadphoneTrackVolume = .25f };
+var restoredVolumes = System.Text.Json.JsonSerializer.Deserialize<Settings>(System.Text.Json.JsonSerializer.Serialize(volumeSettings))!;
+if (restoredVolumes.TrackVolume != 1 || restoredVolumes.HeadphoneTrackVolume != .25f)
+    throw new Exception("Independent track volumes did not survive settings serialization.");
+Console.WriteLine("PASS: independent track gains, both mute directions, live queued headphone changes, microphone isolation, byte-buffer boundaries, and saved volumes.");
 
 // WASAPI consumes byte buffers through this adapter, not ordinary float arrays.
 using (var engine = new AudioEngine { IncludeMicrophoneDuringPlayback = true })
@@ -128,7 +167,7 @@ using (var engine = new AudioEngine { IncludeMicrophoneDuringPlayback = true })
     var microphoneField = typeof(AudioEngine).GetField("microphoneSamples", flags)!;
     microphoneField.SetValue(engine, new ConstantSamples(.25f));
     typeof(AudioEngine).GetField("track", flags)!.SetValue(engine, new ConstantSamples(.125f));
-    engine.TrackVolume = 1;
+    engine.TrackVolume = 1; engine.HeadphoneTrackVolume = 1;
     var recording = (AudioTestRecording)typeof(AudioEngine).GetField("testRecording", flags)!.GetValue(engine)!;
     var output = typeof(AudioEngine).GetNestedType("Output", System.Reflection.BindingFlags.NonPublic)!;
     var cable = new NAudio.Wave.SampleProviders.SampleToWaveProvider((NAudio.Wave.ISampleProvider)Activator.CreateInstance(output, engine, true)!);
@@ -146,6 +185,7 @@ using (var engine = new AudioEngine { IncludeMicrophoneDuringPlayback = true })
     for (int i = 0; i < bytes.Length; i += 4)
         if (BitConverter.ToSingle(bytes, i) != .875f) throw new Exception("Test playback leaked into broadcast.");
     // Drain more headphone samples than the recorded clip contains, with a nonzero offset.
+    engine.HeadphoneTrackVolume = 0;
     var previewBytes = new byte[19208];
     headphones.Read(previewBytes, 8, 19200);
     for (int i = 8; i < previewBytes.Length; i += 4)
@@ -292,7 +332,7 @@ using (var engine = new AudioEngine { IncludeMicrophoneDuringPlayback = true })
         if (engine.CurrentTrackId != "different" || engine.IsPaused) throw new Exception("Selecting a different track resumed the previous track.");
         engine.Stop();
         engine.IncludeMicrophoneDuringPlayback = false;
-        engine.TrackVolume = 1;
+        engine.TrackVolume = 1; engine.HeadphoneTrackVolume = 1;
         pressed = new TaskCompletionSource(System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
         var playback = engine.TogglePlayback(selectedTrack);
         await pressed.Task.WaitAsync(TimeSpan.FromSeconds(3));
@@ -333,7 +373,7 @@ using (var engine = new AudioEngine())
     var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
     typeof(AudioEngine).GetField("microphoneSamples", flags)!.SetValue(engine, new ConstantSamples(.5f));
     typeof(AudioEngine).GetField("track", flags)!.SetValue(engine, new ConstantSamples(.25f));
-    engine.TrackVolume = 1;
+    engine.TrackVolume = 1; engine.HeadphoneTrackVolume = 1;
     var output = typeof(AudioEngine).GetNestedType("Output", System.Reflection.BindingFlags.NonPublic)!;
     var cable = new NAudio.Wave.SampleProviders.SampleToWaveProvider((NAudio.Wave.ISampleProvider)Activator.CreateInstance(output, engine, true)!);
     var bytes = new byte[512];
@@ -365,7 +405,7 @@ using (var engine = new AudioEngine())
 Console.WriteLine("PASS: tracks-only default, opt-in mix, pause/stop restoration, lead-in mute, and release-tail mute.");
 
 bool microphoneHeld = false;
-using (var engine = new AudioEngine { MicrophoneHoldPressed = () => microphoneHeld, TrackVolume = 1, MicrophoneVolume = .5f })
+using (var engine = new AudioEngine { MicrophoneHoldPressed = () => microphoneHeld, TrackVolume = 1, HeadphoneTrackVolume = 1, MicrophoneVolume = .5f })
 {
     var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
     typeof(AudioEngine).GetField("microphoneSamples", flags)!.SetValue(engine, new ConstantSamples(.5f));

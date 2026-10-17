@@ -24,11 +24,15 @@ Click a track or use the arrow keys to select it. Selecting a track does not pla
 | F7 | Select the previous track |
 | F8 | Play, pause, or resume the selected track |
 | F9 | Select the next track |
-| F10 / F11 | Lower / raise track volume |
+| F10 / F11 | Lower / raise broadcast track volume |
 | Ctrl+Alt+Space | Open the launcher and search |
 | Escape | Hide the launcher |
 
-Shortcuts work while the launcher is hidden. Change them in Settings. Use the tray menu to exit. Closing the launcher hides it and keeps audio running.
+Shortcuts work while the launcher is hidden. Change them in Settings.
+
+Use **Broadcast track** to set the track volume sent to voice chat and **Headphone track** to set the track volume you hear. Both controls save automatically. For example, set broadcast to 100% and headphones to 20% to hear the game over the track. Either control can mute its output at 0% without changing the other. These controls do not change microphone or game volume. Test playback uses the recorded broadcast mix.
+
+Use the tray menu to exit. Closing the launcher hides it and keeps audio running.
 
 When the launcher is hidden or minimized, a small semi-transparent bar shows the selected track and playback state at the top of the active screen. If a different track is still playing, it appears on a second line. Mouse input passes through to your game. Toggle **Show game overlay** in the tray menu to hide or restore it. Use windowed or borderless mode if exclusive fullscreen hides the overlay.
 
