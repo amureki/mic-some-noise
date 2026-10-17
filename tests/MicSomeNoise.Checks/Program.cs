@@ -364,6 +364,55 @@ using (var engine = new AudioEngine())
 }
 Console.WriteLine("PASS: tracks-only default, opt-in mix, pause/stop restoration, lead-in mute, and release-tail mute.");
 
+bool microphoneHeld = false;
+using (var engine = new AudioEngine { MicrophoneHoldPressed = () => microphoneHeld, TrackVolume = 1, MicrophoneVolume = .5f })
+{
+    var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+    typeof(AudioEngine).GetField("microphoneSamples", flags)!.SetValue(engine, new ConstantSamples(.5f));
+    typeof(AudioEngine).GetField("track", flags)!.SetValue(engine, new ConstantSamples(.25f));
+    var output = typeof(AudioEngine).GetNestedType("Output", System.Reflection.BindingFlags.NonPublic)!;
+    var cable = new NAudio.Wave.SampleProviders.SampleToWaveProvider((NAudio.Wave.ISampleProvider)Activator.CreateInstance(output, engine, true)!);
+    var headphones = new NAudio.Wave.SampleProviders.SampleToWaveProvider((NAudio.Wave.ISampleProvider)Activator.CreateInstance(output, engine, false)!);
+    var bytes = new byte[512];
+    var preview = new byte[512];
+    for (int block = 0; block < 20; block++)
+    {
+        microphoneHeld = block % 2 == 1;
+        cable.Read(bytes, 0, bytes.Length);
+        float expected = microphoneHeld ? .5f : .25f;
+        if (Enumerable.Range(0, 128).Any(i => BitConverter.ToSingle(bytes, i * 4) != expected))
+            throw new Exception("Microphone hold failed to follow press/release or respect microphone gain.");
+        headphones.Read(preview, 0, preview.Length);
+        if (Enumerable.Range(0, 128).Any(i => BitConverter.ToSingle(preview, i * 4) != .25f))
+            throw new Exception("Held microphone leaked into headphone monitoring.");
+        if (engine.IncludeMicrophoneDuringPlayback) throw new Exception("Microphone hold changed the saved mixing preference.");
+    }
+    engine.IncludeMicrophoneDuringPlayback = true;
+    microphoneHeld = false;
+    cable.Read(bytes, 0, bytes.Length);
+    if (BitConverter.ToSingle(bytes, 0) != .5f) throw new Exception("Releasing hold overrode always-on microphone mixing.");
+    engine.IncludeMicrophoneDuringPlayback = false;
+    typeof(AudioEngine).GetField("<IsStarting>k__BackingField", flags)!.SetValue(engine, true);
+    microphoneHeld = true;
+    cable.Read(bytes, 0, bytes.Length);
+    if (BitConverter.ToSingle(bytes, 0) != .25f) throw new Exception("Held microphone was muted during track start.");
+    microphoneHeld = false;
+    cable.Read(bytes, 0, bytes.Length);
+    if (bytes.Any(x => x != 0)) throw new Exception("Microphone stayed open after release during track start.");
+    engine.Stop();
+    cable.Read(bytes, 0, bytes.Length);
+    if (BitConverter.ToSingle(bytes, 0) != .25f) throw new Exception("Hold shortcut changed idle microphone forwarding.");
+    typeof(AudioEngine).GetField("track", flags)!.SetValue(engine, new EmptySamples());
+    typeof(AudioEngine).GetField("automaticPushToTalk", flags)!.SetValue(engine, true);
+    microphoneHeld = true;
+    cable.Read(bytes, 0, bytes.Length);
+    if (BitConverter.ToSingle(bytes, 0) != .25f) throw new Exception("Hold failed during push-to-talk release tail.");
+    microphoneHeld = false;
+    cable.Read(bytes, 0, bytes.Length);
+    if (bytes.Any(x => x != 0)) throw new Exception("Release tail leaked microphone after hold release.");
+}
+Console.WriteLine("PASS: microphone hold follows rapid press/release, respects gain and always-on preference, isolates headphones, and handles start/idle/release tail.");
+
 sealed class EmptySamples : NAudio.Wave.ISampleProvider
 {
     public NAudio.Wave.WaveFormat WaveFormat { get; } = NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(48000, 2);

@@ -51,13 +51,13 @@ public sealed class Hotkeys : IDisposable
             throw new InvalidOperationException("Use a key such as F8, F9, or a shortcut such as Ctrl+Alt+Space.");
         return (modifiers, (uint)KeyInterop.VirtualKeyFromKey(key));
     }
-    public static ushort ValidatePushToTalk(string value, params string[] shortcuts)
+    public static ushort ValidateHoldKey(string value, string action, params string[] shortcuts)
     {
         var parsed = Parse(value);
         if (parsed.Modifiers != 0 || !(parsed.Key is >= 0x30 and <= 0x5a or >= 0x70 and <= 0x87 or 0x20))
-            throw new InvalidOperationException("Choose a single letter, digit (D0–D9), function key, or Space for push-to-talk. Modifier keys and chords are not supported.");
+            throw new InvalidOperationException($"Choose a single letter, digit (D0–D9), function key, or Space for {action}. Modifier keys and chords are not supported.");
         if (shortcuts.Select(shortcut => Parse(shortcut).Key).Contains(parsed.Key))
-            throw new InvalidOperationException("Push-to-talk must use a different key from all app shortcuts.");
+            throw new InvalidOperationException($"{action} conflicts with another shortcut. Choose a different key.");
         return (ushort)parsed.Key;
     }
     private IntPtr Hook(

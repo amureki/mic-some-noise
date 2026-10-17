@@ -6,13 +6,15 @@ namespace MicSomeNoise;
 
 internal static class KeyboardInput
 {
+    public static bool IsDown(ushort key) => (GetAsyncKeyState(key) & 0x8000) != 0;
+
     public static void Send(ushort key, bool down)
     {
         if (down)
         {
             GetWindowThreadProcessId(GetForegroundWindow(), out uint process);
             if (process == Environment.ProcessId) throw new InvalidOperationException("Return to the game and use the global play shortcut when automatic push-to-talk is enabled.");
-            if ((GetAsyncKeyState(key) & 0x8000) != 0) throw new InvalidOperationException("Release your push-to-talk key before starting automatic playback.");
+            if (IsDown(key)) throw new InvalidOperationException("Release your push-to-talk key before starting automatic playback.");
         }
         uint scan = MapVirtualKey(key, 4);
         if (scan == 0) throw new InvalidOperationException("This push-to-talk key cannot be mapped on your keyboard. Choose another key.");

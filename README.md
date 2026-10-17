@@ -14,12 +14,13 @@ Play sounds and music in voice chat without leaving your game. Mic Some Noise ru
 
 Use headphones to avoid feedback. Leave Windows "Listen to this device" off for your microphone and VB-CABLE.
 
-Your voice passes through while no track is playing. During playback, the app sends only the track by default. To speak over it, turn on **Include my microphone while a track plays** in Settings.
+Your voice passes through while no track is playing. During playback, the app sends only the track by default. Hold **F6** to speak over the track; release it to return to track-only audio. This works while the launcher is hidden. Change **Hold to speak over a track** in Settings, or leave it blank to disable. To keep your microphone on throughout playback, enable **Include my microphone while a track plays** instead. Your microphone must be unmuted on the device and in Windows. F6 controls the app’s mix; your game’s push-to-talk rules still apply. Use a different key from the app shortcuts and automatic game push-to-talk.
 
 ## Controls
 
 | Shortcut | Action |
 | --- | --- |
+| Hold F6 | Mix your microphone with the playing track while held |
 | F7 | Select the previous track |
 | F8 | Play, pause, or resume the selected track |
 | F9 | Select the next track |

@@ -36,6 +36,7 @@ public sealed class AudioEngine : IDisposable
     private bool automaticPushToTalk;
     private long microphoneMuteUntil;
     public bool IncludeMicrophoneDuringPlayback { get; set; }
+    public Func<bool> MicrophoneHoldPressed { get; set; } = () => false;
     private float trackVolume = .5f, micVolume = 1;
     public string? Current { get; private set; }
     public string? CurrentTrackId { get; private set; }
@@ -211,7 +212,9 @@ public sealed class AudioEngine : IDisposable
             }
             // Keep draining capture while muted so old speech is not replayed on unmute.
             microphoneSamples?.Read(scratch, 0, count);
-            bool muteMicrophone = !IncludeMicrophoneDuringPlayback && (readingTrack || IsStarting || Environment.TickCount64 < microphoneMuteUntil);
+            bool muteMicrophone = !IncludeMicrophoneDuringPlayback
+                && (readingTrack || IsStarting || Environment.TickCount64 < microphoneMuteUntil)
+                && !MicrophoneHoldPressed();
             for (int i = 0; i < count; i++) buffer[offset + i] = Math.Clamp(buffer[offset + i] + (muteMicrophone ? 0 : scratch[i] * micVolume), -1f, 1f);
             testRecording.Capture(buffer, offset, count);
             return count;

@@ -50,6 +50,7 @@ public sealed class MainWindow : Window
     private Track? renamingTrack;
     private string? pendingTrackId;
     private long playbackRevision;
+    private volatile ushort microphoneHoldKey;
 
     public MainWindow()
     {
@@ -234,8 +235,24 @@ public sealed class MainWindow : Window
             hotkeys = new Hotkeys(new WindowInteropHelper(this).Handle); hotkeys.Open += Reveal; hotkeys.Play += async () => await PlaySelected(); hotkeys.Next += () => SelectAdjacent(1); hotkeys.Previous += () => SelectAdjacent(-1);
             hotkeys.VolumeDown += () => volume.Value = Math.Clamp(Math.Round(volume.Value - .05, 2), 0, 1);
             hotkeys.VolumeUp += () => volume.Value = Math.Clamp(Math.Round(volume.Value + .05, 2), 0, 1);
-            try { hotkeys.Apply(store.Settings.OpenHotkey, store.Settings.PlayHotkey, store.Settings.NextHotkey, store.Settings.VolumeDownHotkey, store.Settings.VolumeUpHotkey, store.Settings.PreviousHotkey); } catch (Exception e) { status.Text = e.Message; }
-            if (store.Settings.Cable != null) try { var s = store.Settings; pushToTalk.Configure(s.PushToTalkEnabled, s.PushToTalkEnabled ? Hotkeys.ValidatePushToTalk(s.PushToTalkKey, s.OpenHotkey, s.PlayHotkey, s.NextHotkey, s.VolumeDownHotkey, s.VolumeUpHotkey, s.PreviousHotkey) : (ushort)0); audio.Start(s); } catch (Exception e) { status.Text = e.Message; }
+            audio.MicrophoneHoldPressed = () => microphoneHoldKey != 0 && KeyboardInput.IsDown(microphoneHoldKey);
+            var s = store.Settings;
+            string[] shortcuts = [s.OpenHotkey, s.PlayHotkey, s.NextHotkey, s.VolumeDownHotkey, s.VolumeUpHotkey, s.PreviousHotkey];
+            try { hotkeys.Apply(s.OpenHotkey, s.PlayHotkey, s.NextHotkey, s.VolumeDownHotkey, s.VolumeUpHotkey, s.PreviousHotkey); }
+            catch (Exception e) { status.Text = e.Message; }
+            try
+            {
+                string[] holdConflicts = s.PushToTalkEnabled ? [.. shortcuts, s.PushToTalkKey, "F2"] : [.. shortcuts, "F2"];
+                microphoneHoldKey = string.IsNullOrWhiteSpace(s.MicrophoneHoldKey) ? (ushort)0 : Hotkeys.ValidateHoldKey(s.MicrophoneHoldKey, "Microphone hold", holdConflicts);
+            }
+            catch (Exception e) { status.Text = "Microphone hold disabled. Change its key in Settings. " + e.Message; }
+            if (s.Cable != null) try
+            {
+                ushort pttCode = s.PushToTalkEnabled ? Hotkeys.ValidateHoldKey(s.PushToTalkKey, "Push-to-talk", shortcuts) : (ushort)0;
+                pushToTalk.Configure(s.PushToTalkEnabled, pttCode);
+                audio.Start(s);
+            }
+            catch (Exception e) { status.Text = e.Message; }
         };
         Loaded += (_, _) => { search.Focus(); if (store.Settings.Cable == null) ShowSettings(); };
         Closing += (_, e) => { if (!exiting) { e.Cancel = true; Dismiss(); } };
@@ -457,7 +474,9 @@ public sealed class MainWindow : Window
         var hp = Devices("Headphones", outputs, store.Settings.Headphones);
         var cable = Devices("Broadcast output: CABLE Input", outputs, store.Settings.Cable);
         var includeMicrophone = new CheckBox { Content = "Include my microphone while a track plays", IsChecked = store.Settings.IncludeMicrophoneDuringPlayback, Margin = new Thickness(0, 12, 0, 5) }; panel.Children.Add(includeMicrophone);
-        Label(panel, "Off sends only the track to the game during playback and the push-to-talk delay. Pausing or stopping restores your microphone. Discord stays unchanged when it uses your main mic directly.");
+        Label(panel, "Off sends only the track during playback unless you hold the microphone shortcut below. Pausing or stopping restores your microphone. Discord stays unchanged when it uses your main mic directly.");
+        Label(panel, "Hold to speak over a track"); var microphoneHold = new TextBox { Text = store.Settings.MicrophoneHoldKey }; panel.Children.Add(microphoneHold);
+        Label(panel, "Hold F6 by default to mix your microphone with the track. Release it to return to track-only audio. Choose a single key different from your other shortcuts, F2, and game push-to-talk, or leave blank to disable. Your microphone must be unmuted in Windows and on the device. The game's push-to-talk rules still apply.");
         Label(panel, "Microphone volume"); var gain = new Slider { Minimum = 0, Maximum = 2, Value = store.Settings.MicrophoneVolume }; panel.Children.Add(gain);
         Label(panel, "Open shortcut"); var open = new TextBox { Text = store.Settings.OpenHotkey }; panel.Children.Add(open);
         Label(panel, "Play / pause shortcut"); var play = new TextBox { Text = store.Settings.PlayHotkey }; panel.Children.Add(play);
@@ -480,12 +499,16 @@ public sealed class MainWindow : Window
             {
                 if (mic.SelectedValue == null || hp.SelectedValue == null || cable.SelectedValue == null) throw new InvalidOperationException("Select all three audio devices.");
                 if (!int.TryParse(pttDelay.Text, out int delayMs) || delayMs < 0 || delayMs > 2000) throw new InvalidOperationException("Enter a push-to-talk delay from 0 to 2000 milliseconds.");
-                ushort pttCode = automaticPtt.IsChecked == true ? Hotkeys.ValidatePushToTalk(pttKey.Text, open.Text, play.Text, next.Text, volumeDown.Text, volumeUp.Text, previousTrack.Text) : (ushort)0;
+                string[] shortcuts = [open.Text, play.Text, next.Text, volumeDown.Text, volumeUp.Text, previousTrack.Text];
+                ushort pttCode = automaticPtt.IsChecked == true ? Hotkeys.ValidateHoldKey(pttKey.Text, "Push-to-talk", shortcuts) : (ushort)0;
+                string[] holdConflicts = automaticPtt.IsChecked == true ? [.. shortcuts, pttKey.Text, "F2"] : [.. shortcuts, "F2"];
+                ushort holdCode = string.IsNullOrWhiteSpace(microphoneHold.Text) ? (ushort)0 : Hotkeys.ValidateHoldKey(microphoneHold.Text, "Microphone hold", holdConflicts);
                 hotkeys!.Apply(open.Text, play.Text, next.Text, volumeDown.Text, volumeUp.Text, previousTrack.Text);
                 audio.Stop();
                 pushToTalk.Configure(automaticPtt.IsChecked == true, pttCode);
+                microphoneHoldKey = holdCode;
                 var s = store.Settings; s.Microphone = (string)mic.SelectedValue; s.Headphones = (string)hp.SelectedValue; s.Cable = (string)cable.SelectedValue;
-                s.IncludeMicrophoneDuringPlayback = includeMicrophone.IsChecked == true; s.MicrophoneVolume = (float)gain.Value; s.OpenHotkey = open.Text; s.PlayHotkey = play.Text; s.NextHotkey = next.Text; s.PreviousHotkey = previousTrack.Text; s.VolumeDownHotkey = volumeDown.Text; s.VolumeUpHotkey = volumeUp.Text; s.PushToTalkEnabled = automaticPtt.IsChecked == true; s.PushToTalkKey = pttKey.Text.Trim(); s.PushToTalkDelayMs = delayMs;
+                s.MicrophoneHoldKey = microphoneHold.Text.Trim(); s.IncludeMicrophoneDuringPlayback = includeMicrophone.IsChecked == true; s.MicrophoneVolume = (float)gain.Value; s.OpenHotkey = open.Text; s.PlayHotkey = play.Text; s.NextHotkey = next.Text; s.PreviousHotkey = previousTrack.Text; s.VolumeDownHotkey = volumeDown.Text; s.VolumeUpHotkey = volumeUp.Text; s.PushToTalkEnabled = automaticPtt.IsChecked == true; s.PushToTalkKey = pttKey.Text.Trim(); s.PushToTalkDelayMs = delayMs;
                 audio.Start(s); store.SaveSettings(); Refresh(); error.Text = "Audio ready. You can test the microphone and selected track below.";
             }
             catch (Exception e) { error.Text = e.Message; }
