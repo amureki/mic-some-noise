@@ -29,6 +29,7 @@ public sealed class Settings
     public int PushToTalkDelayMs { get; set; } = 150;
     public string PushToTalkKey { get; set; } = "V";
     public string? SelectedTrackId { get; set; }
+    public bool ShowGameOverlay { get; set; } = true;
 }
 
 public sealed class Store

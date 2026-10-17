@@ -20,6 +20,7 @@ public sealed class MainWindow : Window
 {
     private readonly Store store = new();
     private readonly AudioEngine audio = new();
+    private readonly PlaybackOverlay overlay = new();
     private readonly PushToTalk pushToTalk = new(KeyboardInput.Send);
     private readonly TextBox search = new();
     private readonly ListBox results = new();
@@ -55,7 +56,7 @@ public sealed class MainWindow : Window
     public MainWindow()
     {
         Style = (Style)FindResource(typeof(Window));
-        Title = "Mic Some Noise 0.1.14"; Width = 1040; Height = 820; MinWidth = 560; MinHeight = 600;
+        Title = "Mic Some Noise " + typeof(MainWindow).Assembly.GetName().Version?.ToString(3); Width = 1040; Height = 820; MinWidth = 560; MinHeight = 600;
         MinHeight = Math.Min(MinHeight, SystemParameters.WorkArea.Height);
         MinWidth = Math.Min(MinWidth, SystemParameters.WorkArea.Width);
         Height = Math.Min(Height, SystemParameters.WorkArea.Height);
@@ -227,6 +228,14 @@ public sealed class MainWindow : Window
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add("Open", null, (_, _) => Reveal()); menu.Items.Add("Stop track", null, (_, _) => audio.Stop());
         menu.Items.Add("Settings", null, (_, _) => ShowSettings());
+        var overlayToggle = new Forms.ToolStripMenuItem("Show game overlay") { CheckOnClick = true, Checked = store.Settings.ShowGameOverlay };
+        overlayToggle.CheckedChanged += (_, _) =>
+        {
+            store.Settings.ShowGameOverlay = overlayToggle.Checked;
+            UpdateOverlayVisibility();
+            try { store.SaveSettings(); } catch (Exception e) { status.Text = "Could not save the overlay setting: " + e.Message; }
+        };
+        menu.Items.Add(overlayToggle);
         menu.Items.Add("Exit", null, (_, _) => Exit()); tray.ContextMenuStrip = menu; tray.DoubleClick += (_, _) => Reveal();
         SourceInitialized += (_, _) =>
         {
@@ -255,6 +264,8 @@ public sealed class MainWindow : Window
             catch (Exception e) { status.Text = e.Message; }
         };
         Loaded += (_, _) => { search.Focus(); if (store.Settings.Cable == null) ShowSettings(); };
+        IsVisibleChanged += (_, _) => UpdateOverlayVisibility();
+        StateChanged += (_, _) => UpdateOverlayVisibility();
         Closing += (_, e) => { if (!exiting) { e.Cancel = true; Dismiss(); } };
         current.Text = "No track playing"; Refresh();
     }
@@ -425,7 +436,18 @@ public sealed class MainWindow : Window
         selected.Text = ready == null ? "Ready: select a track" : $"Ready: {ready.Name} · {store.Settings.PlayHotkey} to {action.ToLowerInvariant()}";
         selected.ToolTip = selected.Text;
         current.Text = audio.Current == null ? "No track playing" : (audio.IsPaused ? "Paused: " : audio.IsStarting ? "Resuming: " : "Playing: ") + audio.Current;
-
+        overlay.Update(ready, audio);
+    }
+    private void UpdateOverlayVisibility()
+    {
+        if (exiting) return;
+        if (store.Settings.ShowGameOverlay && (!IsVisible || WindowState == WindowState.Minimized))
+        {
+            var foreground = Hotkeys.GetForegroundWindow();
+            if (foreground == new WindowInteropHelper(this).Handle && previous != IntPtr.Zero) foreground = previous;
+            overlay.ShowAboveWindow(foreground);
+        }
+        else overlay.Hide();
     }
     private async Task PlaySelected()
     {
@@ -445,7 +467,7 @@ public sealed class MainWindow : Window
     }
     private void Reveal() { var foreground = Hotkeys.GetForegroundWindow(); if (foreground != new WindowInteropHelper(this).Handle) previous = foreground; Show(); WindowState = WindowState.Normal; Activate(); search.Focus(); search.SelectAll(); }
     private void Dismiss() { try { store.SaveSettings(); } catch (Exception e) { status.Text = e.Message; return; } Hide(); if (previous != IntPtr.Zero) Hotkeys.SetForegroundWindow(previous); }
-    private void Exit() { if (importCancellation != null) { MessageBox.Show("Cancel the import and wait for it to finish before exiting."); return; } pushToTalk.Release(); exiting = true; store.SaveSettings(); hotkeys?.Dispose(); tray.Dispose(); trayIcon.Dispose(); audio.Dispose(); pushToTalk.Dispose(); Application.Current.Shutdown(); }
+    private void Exit() { if (importCancellation != null) { MessageBox.Show("Cancel the import and wait for it to finish before exiting."); return; } pushToTalk.Release(); exiting = true; store.SaveSettings(); overlay.Close(); hotkeys?.Dispose(); tray.Dispose(); trayIcon.Dispose(); audio.Dispose(); pushToTalk.Dispose(); Application.Current.Shutdown(); }
     private Window Dialog(string title, int height, out StackPanel panel)
     {
         var window = new Window { Owner = this, Title = title, Width = 600, Height = height, MinWidth = 480, MinHeight = 400, FontFamily = FontFamily, FontSize = FontSize, WindowStartupLocation = WindowStartupLocation.CenterScreen };

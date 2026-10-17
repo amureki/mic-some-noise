@@ -2,12 +2,12 @@
 
 Play sounds and music in voice chat without leaving your game. Mic Some Noise runs on Windows 11 and sends your microphone and selected track to Discord or your game through VB-CABLE.
 
-[Download for Windows](https://github.com/amureki/mic-some-noise/releases/latest/download/MicSomeNoise-win-x64.zip)
+[Download for Windows](https://github.com/amureki/mic-some-noise/releases/latest)
 
 ## Get started
 
 1. Install [VB-CABLE](https://vb-audio.com/Cable/). Restart Windows if the installer asks you to.
-2. Extract the downloaded ZIP and run `MicSomeNoise.exe`. Keep the extracted files together.
+2. Extract the downloaded ZIP, open the versioned folder, and run `MicSomeNoise.exe`. Keep the extracted files together.
 3. Open Settings. Choose your microphone and headphones, then choose **CABLE Input** as the broadcast output. Click **Apply and start audio**.
 4. In Discord or your game, choose **CABLE Output** as the microphone input and your headphones as the output.
 5. Click **Import audio file** in the launcher and add a WAV or MP3 file. Select a track, return to your game, and press **F8** to play it.
@@ -31,6 +31,8 @@ Your voice passes through while no track is playing. During playback, the app se
 Click a track or use the arrow keys to select it. Selecting a track does not play it. Use Enter in search or the track list to play, pause, or resume the selected result. Previous/Next and F7/F9 cycle through the search results in name order and wrap at either end. Clear search to cycle through the full library. Use **Stop** in the launcher or tray menu to stop playback. Shortcuts work while the launcher is hidden, and you can change them in Settings.
 
 Use the tray menu to exit. Closing the launcher hides it and keeps audio running.
+
+When the launcher is hidden or minimized, a small semi-transparent bar shows the selected track and whether playback is playing, paused, starting, or stopped. If a different track is still playing, it appears on a second line. The bar sits at the top of the active screen and passes mouse input through to your game. Toggle **Show game overlay** in the tray menu to hide or restore it; the app remembers your choice. Use windowed or borderless mode if your game's exclusive fullscreen mode hides the overlay.
 
 Widen the launcher to show two columns of tracks; a narrow window uses one column. Use a track’s **Track actions** menu to rename it or remove it from the library. With the list focused, F2 renames and Delete removes. **Undo** restores removals in reverse order until you exit the app. Removing the playing track stops playback. Audio files stay on disk.
 
@@ -69,7 +71,7 @@ The extracted release contains:
 
 The runtime and audio libraries are required and bundled inside the EXE. Native libraries extract to `%TEMP%/.net` when the app starts. Bundling reduces the number of visible files, not the amount of runtime code shipped.
 
-Get updates from [Releases](https://github.com/amureki/mic-some-noise/releases). Exit the app, extract the new ZIP into a new folder, and run it. Your settings and library carry over.
+Get updates from [Releases](https://github.com/amureki/mic-some-noise/releases). Each ZIP and its app folder include the version, for example `MicSomeNoise-0.1.16-win-x64.zip` and `MicSomeNoise-0.1.16-win-x64/`. Exit the app, extract the new ZIP, and run the app from its new versioned folder. Your settings and library carry over.
 
 The app keeps settings and copied audio in `%LOCALAPPDATA%\MicSomeNoise`. Back up that folder to keep your library. Removing a track from the library leaves its copied audio file in that folder.
 

@@ -41,9 +41,10 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
         run: |
-          $zip = 'artifacts/MicSomeNoise-win-x64.zip'
+          $filename = "MicSomeNoise-$($env:TAG.Substring(1))-win-x64.zip"
+          $zip = "artifacts/$filename"
           $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  MicSomeNoise-win-x64.zip" | Set-Content "$zip.sha256" -Encoding ascii
+          "$hash  $filename" | Set-Content "$zip.sha256" -Encoding ascii
           $draft = gh release view $env:TAG --json isDraft --jq '.isDraft' 2>$null
           if ($LASTEXITCODE -ne 0) {
             gh release create $env:TAG --verify-tag --draft --title "Mic Some Noise $env:TAG" --generate-notes

@@ -5,7 +5,7 @@ Play sounds and music in voice chat without leaving your game.
 ## Set up
 
 1. Install [VB-CABLE](https://vb-audio.com/Cable/). Restart Windows if the installer asks you to.
-2. Extract the ZIP and run `MicSomeNoise.exe`. Keep the extracted files together.
+2. Extract the ZIP, open the versioned folder, and run `MicSomeNoise.exe`. Keep the extracted files together.
 3. Open Settings. Choose your microphone and headphones, then choose **CABLE Input** as the broadcast output. Click **Apply and start audio**.
 4. In Discord or your game, choose **CABLE Output** as the microphone input and your headphones as the output.
 5. Click **Import audio file** in the launcher and add a WAV or MP3 file. Select a track, return to your game, and press **F8**.
@@ -29,6 +29,8 @@ Click a track or use the arrow keys to select it. Selecting a track does not pla
 | Escape | Hide the launcher |
 
 Shortcuts work while the launcher is hidden. Change them in Settings. Use the tray menu to exit. Closing the launcher hides it and keeps audio running.
+
+When the launcher is hidden or minimized, a small semi-transparent bar shows the selected track and playback state at the top of the active screen. If a different track is still playing, it appears on a second line. Mouse input passes through to your game. Toggle **Show game overlay** in the tray menu to hide or restore it. Use windowed or borderless mode if exclusive fullscreen hides the overlay.
 
 Widen the launcher to show two columns of tracks; a narrow window uses one column. Use a track’s **Track actions** menu to rename it or remove it from the library. With the list focused, F2 renames and Delete removes. **Undo** restores removals in reverse order until you exit the app. Removing the playing track stops playback. Audio files stay on disk.
 
@@ -64,6 +66,6 @@ Run `MicSomeNoise.exe` from the extracted folder. It includes the required .NET/
 
 `README.md` contains these instructions. `tools/` contains the optional YouTube import installer. `licenses/` contains license terms and third-party notices; keep it with the app when you redistribute it. Local WAV and MP3 playback does not need the import tools.
 
-Get updates from [Releases](https://github.com/amureki/mic-some-noise/releases/latest). Exit the app, extract the new ZIP into a new folder, and run it. Your settings and library carry over.
+Get updates from [Releases](https://github.com/amureki/mic-some-noise/releases/latest). Each ZIP and its app folder include the version, for example `MicSomeNoise-0.1.16-win-x64.zip` and `MicSomeNoise-0.1.16-win-x64/`. Exit the app, extract the new ZIP, and run the app from its new versioned folder. Your settings and library carry over.
 
 Back up `%LOCALAPPDATA%\MicSomeNoise` to keep your settings and audio. Removing a track from the library leaves its copied audio file in that folder.
