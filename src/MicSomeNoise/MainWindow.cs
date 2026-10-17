@@ -1,11 +1,13 @@
 using System;
 using System.ComponentModel;
+using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -38,11 +40,21 @@ public sealed class MainWindow : Window
     private readonly Button importButton;
     private readonly Button cancelImportButton;
     private Window? managementWindow;
+    private int trackColumns = 1;
+    private readonly Stack<(Track Track, int Index)> removedTracks = new();
+    private readonly TextBlock removalMessage = new() { TextWrapping = TextWrapping.Wrap };
+    private readonly Button undoButton;
+    private readonly StackPanel renamePanel = new() { Visibility = Visibility.Collapsed };
+    private readonly TextBox renameInput = new();
+    private readonly TextBlock renameError = new() { TextWrapping = TextWrapping.Wrap };
+    private Track? renamingTrack;
+    private string? pendingTrackId;
+    private long playbackRevision;
 
     public MainWindow()
     {
         Style = (Style)FindResource(typeof(Window));
-        Title = "Mic Some Noise 0.1.13"; Width = 800; Height = 900; MinWidth = 560; MinHeight = 600;
+        Title = "Mic Some Noise 0.1.13"; Width = 1040; Height = 820; MinWidth = 560; MinHeight = 600;
         MinHeight = Math.Min(MinHeight, SystemParameters.WorkArea.Height);
         MinWidth = Math.Min(MinWidth, SystemParameters.WorkArea.Width);
         Height = Math.Min(Height, SystemParameters.WorkArea.Height);
@@ -58,7 +70,6 @@ public sealed class MainWindow : Window
         var heading = new DockPanel { Margin = new Thickness(0, 0, 0, 18) };
         var navigation = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right };
         DockPanel.SetDock(navigation, Dock.Right); heading.Children.Add(navigation);
-        AddButton(navigation, "Library", ShowLibrary);
         AddButton(navigation, "Settings", ShowSettings);
         heading.Children.Add(new TextBlock { Text = "Mic Some Noise", FontSize = 24, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
         header.Children.Add(heading);
@@ -83,68 +94,84 @@ public sealed class MainWindow : Window
         header.Children.Add(new ScrollViewer { Content = importStatus, MaxHeight = 90, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
         libraryCount.Foreground = (Brush)FindResource("Muted"); libraryCount.FontSize = 12; libraryCount.Margin = new Thickness(2, 0, 0, 8);
         header.Children.Add(libraryCount);
+        var removalNotice = new DockPanel { LastChildFill = true };
+        undoButton = new Button { Content = "Undo", IsEnabled = false, Visibility = Visibility.Collapsed, Margin = new Thickness(8, 0, 0, 8) };
+        undoButton.Click += (_, _) => UndoRemoval();
+        DockPanel.SetDock(undoButton, Dock.Right); removalNotice.Children.Add(undoButton);
+        removalNotice.Children.Add(removalMessage); header.Children.Add(removalNotice);
+        Label(renamePanel, "Rename track"); renamePanel.Children.Add(renameInput);
+        var renameActions = new WrapPanel(); renamePanel.Children.Add(renameActions);
+        AddButton(renameActions, "Save name", SaveTrackName);
+        AddButton(renameActions, "Cancel", () => { renamingTrack = null; renamePanel.Visibility = Visibility.Collapsed; FocusSelectedTrack(); });
+        renamePanel.Children.Add(renameError); header.Children.Add(renamePanel);
+        renameInput.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter) { e.Handled = true; SaveTrackName(); }
+            if (e.Key == Key.Escape) { e.Handled = true; renamingTrack = null; renamePanel.Visibility = Visibility.Collapsed; FocusSelectedTrack(); }
+        };
         var footer = new StackPanel(); DockPanel.SetDock(footer, Dock.Bottom); root.Children.Add(footer);
         footer.Children.Add(new Border { Height = 1, Background = (Brush)FindResource("Outline"), Margin = new Thickness(0, 12, 0, 12) });
         current.Foreground = (Brush)FindResource("Muted"); current.FontSize = 12; current.TextTrimming = TextTrimming.CharacterEllipsis;
         current.Margin = new Thickness(0, 0, 0, 4); footer.Children.Add(current);
-        var volume = new Slider { Minimum = 0, Maximum = 1, Value = store.Settings.TrackVolume, ToolTip = "Track volume", Margin = new Thickness(0, 4, 0, 8) };
-        var volumeLabel = new TextBlock { Text = $"Track volume: {volume.Value:P0}" }; footer.Children.Add(volumeLabel); footer.Children.Add(volume);
+        selected.TextWrapping = TextWrapping.NoWrap; selected.TextTrimming = TextTrimming.CharacterEllipsis;
+        footer.Children.Add(selected);
+        var controls = new DockPanel { LastChildFill = true, Margin = new Thickness(0, 6, 0, 0) }; footer.Children.Add(controls);
+        var buttons = new WrapPanel(); DockPanel.SetDock(buttons, Dock.Left); controls.Children.Add(buttons);
+        AddButton(buttons, "Previous", () => SelectAdjacent(-1));
+        playButton = AddButton(buttons, "Play", async () => await PlaySelected());
+        playButton.Style = (Style)FindResource("PrimaryButton"); playButton.MinWidth = 80;
+        AddButton(buttons, "Next", () => SelectAdjacent(1));
+        AddButton(buttons, "Stop", () => audio.Stop());
+        var volumeControls = new StackPanel { Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center }; controls.Children.Add(volumeControls);
+        var volume = new Slider { Minimum = 0, Maximum = 1, Value = store.Settings.TrackVolume, ToolTip = "Track volume" };
+        System.Windows.Automation.AutomationProperties.SetName(volume, "Track volume");
+        var volumeLabel = new TextBlock { Text = $"Volume: {volume.Value:P0}", FontSize = 12 }; volumeControls.Children.Add(volumeLabel); volumeControls.Children.Add(volume);
         volume.ValueChanged += (_, _) =>
         {
             audio.TrackVolume = (float)volume.Value;
             store.Settings.TrackVolume = (float)volume.Value;
-            volumeLabel.Text = $"Track volume: {volume.Value:P0}";
+            volumeLabel.Text = $"Volume: {volume.Value:P0}";
             try { store.SaveSettings(); } catch (Exception e) { status.Text = "Could not save volume: " + e.Message; }
         };
 
-        selected.TextWrapping = TextWrapping.NoWrap; selected.TextTrimming = TextTrimming.CharacterEllipsis;
-        footer.Children.Insert(2, selected);
-        var buttons = new WrapPanel(); footer.Children.Add(buttons);
-        AddButton(buttons, "Previous", () => SelectAdjacent(-1));
-        playButton = AddButton(buttons, "Play", async () => await PlaySelected());
-        playButton.Style = (Style)FindResource("PrimaryButton"); playButton.MinWidth = 100;
-        AddButton(buttons, "Next", () => SelectAdjacent(1));
-        AddButton(buttons, "Stop", () => audio.Stop());
-        var testPanel = new StackPanel();
-        var testExpander = new Expander { Header = "Test microphone + track", Content = testPanel, Margin = new Thickness(0, 10, 0, 0) };
-        footer.Children.Add(testExpander);
-        testPanel.Children.Add(new TextBlock { Text = "Record up to 10 seconds of the mix sent to broadcast. Listen through headphones. This test is before VB-CABLE and Discord processing; live broadcasting continues.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 4) });
-        var testState = new TextBlock { TextWrapping = TextWrapping.Wrap };
-        testPanel.Children.Add(testState);
-        var testButtons = new WrapPanel(); testPanel.Children.Add(testButtons);
-        var recordTest = new Button { Content = "Record 10 seconds", Padding = new Thickness(8, 5, 8, 5), Margin = new Thickness(0, 4, 6, 4) };
-        var finishTest = new Button { Content = "Finish", Padding = recordTest.Padding, Margin = recordTest.Margin };
-        var listenTest = new Button { Content = "Listen", Padding = recordTest.Padding, Margin = recordTest.Margin };
-        var clearTest = new Button { Content = "Clear", Padding = recordTest.Padding, Margin = recordTest.Margin };
-        testButtons.Children.Add(recordTest); testButtons.Children.Add(finishTest); testButtons.Children.Add(listenTest); testButtons.Children.Add(clearTest);
-        recordTest.Click += (_, _) => { try { audio.BeginTest(); status.Text = "Test recording started. Speak or play a track."; } catch (Exception e) { status.Text = e.Message; } };
-        finishTest.Click += (_, _) => audio.FinishTest();
-        listenTest.Click += (_, _) => { try { audio.ListenToTest(); } catch (Exception e) { status.Text = e.Message; } };
-        clearTest.Click += (_, _) => audio.ClearTest();
-        var testTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
-        testTimer.Tick += (_, _) =>
-        {
-            var state = audio.TestStatus;
-            recordTest.IsEnabled = audio.Running && !state.Recording && !state.Playing;
-            finishTest.IsEnabled = state.Recording;
-            listenTest.IsEnabled = audio.Running && state.HasRecording && !state.Recording && !state.Playing;
-            clearTest.IsEnabled = state.HasRecording || state.Recording;
-            testState.Text = state.Recording ? $"Recording {state.Seconds:0.0} / 10 seconds…" : state.Playing ? $"Listening {state.Seconds:0.0} seconds… Stop ends playback." : state.HasRecording ? $"{state.Seconds:0.0} seconds ready. Listen plays only in your headphones." : "No test recorded. Audio stays in memory until cleared or the app exits.";
-        };
-        testExpander.Expanded += (_, _) => testTimer.Start();
-        testExpander.Collapsed += (_, _) => testTimer.Stop();
-        IsVisibleChanged += (_, _) => { if (IsVisible && testExpander.IsExpanded) testTimer.Start(); else testTimer.Stop(); };
-        Closed += (_, _) => testTimer.Stop();
         footer.Children.Add(status);
         status.Margin = new Thickness(0, 10, 0, 0);
         status.Foreground = (Brush)FindResource("Muted"); status.FontSize = 12;
         results.ItemTemplate = (DataTemplate)FindResource("TrackRow");
+        var trackPanel = new FrameworkElementFactory(typeof(UniformGrid));
+        trackPanel.SetValue(UniformGrid.ColumnsProperty, 1);
+        trackPanel.SetValue(VerticalAlignmentProperty, VerticalAlignment.Top);
+        results.ItemsPanel = new ItemsPanelTemplate(trackPanel);
+        results.SizeChanged += (_, _) =>
+        {
+            int columns = results.ActualWidth >= 800 ? 2 : 1;
+            if (columns == trackColumns) return;
+            trackColumns = columns;
+            var itemsPanel = new FrameworkElementFactory(typeof(UniformGrid));
+            itemsPanel.SetValue(UniformGrid.ColumnsProperty, columns);
+            itemsPanel.SetValue(VerticalAlignmentProperty, VerticalAlignment.Top);
+            results.ItemsPanel = new ItemsPanelTemplate(itemsPanel);
+            if (results.SelectedItem != null) results.Dispatcher.BeginInvoke(() => results.ScrollIntoView(results.SelectedItem));
+        };
+        results.AddHandler(Button.ClickEvent, new RoutedEventHandler((_, e) =>
+        {
+            if (e.OriginalSource is not Button { DataContext: Track track } button) return;
+            results.SelectedItem = track;
+            var menu = new ContextMenu();
+            var rename = new MenuItem { Header = "Rename", InputGestureText = "F2" };
+            rename.Click += (_, _) => RenameTrack(track); menu.Items.Add(rename);
+            var remove = new MenuItem { Header = "Remove from library", InputGestureText = "Delete" };
+            remove.Click += (_, _) => RemoveTrack(track); menu.Items.Add(remove);
+            button.ContextMenu = menu; menu.PlacementTarget = button; menu.Placement = PlacementMode.Bottom; menu.IsOpen = true;
+            e.Handled = true;
+        }));
         results.BorderThickness = new Thickness(0); results.Padding = new Thickness(4); root.Children.Add(results);
-        search.TextChanged += (_, _) => Refresh();
+        ScrollViewer.SetCanContentScroll(results, false);
+        search.TextChanged += (_, _) => { selectionRevision++; Refresh(); };
         results.SelectionChanged += (_, _) =>
         {
-            if (results.SelectedItem is not Track track) return;
-            if (!refreshing && store.Settings.SelectedTrackId != track.Id) selectionRevision++;
+            if (refreshing || results.SelectedItem is not Track track) return;
+            if (store.Settings.SelectedTrackId != track.Id) selectionRevision++;
             store.Settings.SelectedTrackId = track.Id;
             UpdateReadyTrack();
             try { store.SaveSettings(); } catch (Exception e) { status.Text = "Could not save the selection: " + e.Message; }
@@ -153,6 +180,7 @@ public sealed class MainWindow : Window
 
         PreviewKeyDown += async (_, e) =>
         {
+            if (renamePanel.IsKeyboardFocusWithin) return;
             if (e.Key == Key.Escape) { Dismiss(); e.Handled = true; }
             if (e.Key == Key.Enter && search.IsKeyboardFocusWithin && IsUrlInput)
             {
@@ -161,10 +189,30 @@ public sealed class MainWindow : Window
                 return;
             }
             if (!search.IsKeyboardFocusWithin && !results.IsKeyboardFocusWithin) return;
-            if (e.Key is Key.Down or Key.Up)
+            if (e.Key == Key.Enter)
             {
-                results.SelectedIndex = Math.Clamp(results.SelectedIndex + (e.Key == Key.Down ? 1 : -1), 0, Math.Max(0, results.Items.Count - 1));
-                if (results.SelectedItem != null) results.ScrollIntoView(results.SelectedItem);
+                if (Keyboard.FocusedElement is Button) return;
+                e.Handled = true;
+                if (results.SelectedItem is Track) await PlaySelected();
+                return;
+            }
+            if (results.IsKeyboardFocusWithin && results.SelectedItem is Track track)
+            {
+                if (e.Key == Key.F2) { e.Handled = true; RenameTrack(track); return; }
+                if (e.Key == Key.Delete) { e.Handled = true; RemoveTrack(track); return; }
+            }
+            if (e.Key is Key.Down or Key.Up || (results.IsKeyboardFocusWithin && e.Key is Key.Left or Key.Right))
+            {
+                if (search.IsKeyboardFocusWithin)
+                {
+                    if (results.SelectedItem != null) FocusSelectedTrack();
+                    e.Handled = true;
+                    return;
+                }
+                int step = e.Key is Key.Down or Key.Up ? trackColumns : 1;
+                if (e.Key is Key.Up or Key.Left) step = -step;
+                results.SelectedIndex = Math.Clamp(results.SelectedIndex < 0 ? 0 : results.SelectedIndex + step, 0, Math.Max(0, results.Items.Count - 1));
+                FocusSelectedTrack();
                 e.Handled = true;
             }
         };
@@ -177,7 +225,7 @@ public sealed class MainWindow : Window
         tray = new Forms.NotifyIcon { Icon = trayIcon, Text = "Mic Some Noise", Visible = true };
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add("Open", null, (_, _) => Reveal()); menu.Items.Add("Stop track", null, (_, _) => audio.Stop());
-        menu.Items.Add("Library", null, (_, _) => ShowLibrary()); menu.Items.Add("Settings", null, (_, _) => ShowSettings());
+        menu.Items.Add("Settings", null, (_, _) => ShowSettings());
         menu.Items.Add("Exit", null, (_, _) => Exit()); tray.ContextMenuStrip = menu; tray.DoubleClick += (_, _) => Reveal();
         SourceInitialized += (_, _) =>
         {
@@ -205,24 +253,104 @@ public sealed class MainWindow : Window
         importButton.IsEnabled = importCancellation == null;
         string? selectedId = store.Settings.SelectedTrackId;
         results.ItemsSource = store.Tracks.Where(t => IsUrlInput || t.Name.Contains(search.Text, StringComparison.OrdinalIgnoreCase)).OrderBy(t => t.Name).ToList();
-        results.SelectedItem = results.Items.Cast<Track>().FirstOrDefault(t => t.Id == selectedId);
+        results.SelectedItem = results.Items.Cast<Track>().FirstOrDefault(t => t.Id == selectedId) ?? results.Items.Cast<Track>().FirstOrDefault();
         refreshing = false;
+        if (store.Tracks.Count == 0) status.Text = "Import a WAV, MP3, or YouTube video to start.";
+        else if (results.Items.Count == 0) status.Text = "No matching tracks. Change or clear the search.";
+        else status.Text = "Arrows select · Enter plays / pauses · F2 renames · Delete removes";
+        store.Settings.SelectedTrackId = (results.SelectedItem as Track)?.Id;
+        if (store.Settings.SelectedTrackId != selectedId)
+        {
+            selectionRevision++;
+            try { store.SaveSettings(); } catch (Exception e) { status.Text = "Could not save the selection: " + e.Message; }
+        }
         if (results.SelectedItem != null) results.ScrollIntoView(results.SelectedItem);
         libraryCount.Text = (search.Text.Length == 0 || IsUrlInput) ? $"Library · {results.Items.Count} tracks" : $"{results.Items.Count} matches · {store.Tracks.Count} tracks";
         UpdateReadyTrack();
-        if (store.Tracks.Count == 0) status.Text = "Import a WAV, MP3, or YouTube video to start.";
     }
     private bool IsUrlInput => search.Text.TrimStart().StartsWith("https://", StringComparison.OrdinalIgnoreCase) || search.Text.TrimStart().StartsWith("http://", StringComparison.OrdinalIgnoreCase);
 
+    private void FocusSelectedTrack()
+    {
+        if (results.SelectedItem == null) { search.Focus(); return; }
+        results.ScrollIntoView(results.SelectedItem);
+        results.UpdateLayout();
+        if (results.ItemContainerGenerator.ContainerFromItem(results.SelectedItem) is ListBoxItem item) item.Focus();
+    }
+
     private void SelectAdjacent(int direction)
     {
-        var tracks = store.Tracks.OrderBy(t => t.Name).ToList();
+        var tracks = results.Items.Cast<Track>().ToList();
         if (tracks.Count == 0) return;
         int index = tracks.FindIndex(t => t.Id == store.Settings.SelectedTrackId);
         var track = tracks[index < 0 ? (direction > 0 ? 0 : tracks.Count - 1) : (index + direction + tracks.Count) % tracks.Count];
         selectionRevision++;
         store.Settings.SelectedTrackId = track.Id;
-        search.Clear();
+        Refresh();
+        try { store.SaveSettings(); } catch (Exception e) { status.Text = "Could not save the selection: " + e.Message; }
+    }
+
+    private void RenameTrack(Track track)
+    {
+        renamingTrack = track;
+        renameInput.Text = track.Name;
+        renameError.Text = "";
+        renamePanel.Visibility = Visibility.Visible;
+        renameInput.Focus(); renameInput.SelectAll();
+    }
+
+    private void SaveTrackName()
+    {
+        if (renamingTrack is not Track track) return;
+        if (string.IsNullOrWhiteSpace(renameInput.Text)) { renameError.Text = "Enter a track name."; return; }
+        int index = store.Tracks.FindIndex(t => t.Id == track.Id);
+        if (index < 0) { renameError.Text = "This track is no longer in the library."; return; }
+        var original = store.Tracks[index];
+        store.Tracks[index] = original with { Name = renameInput.Text.Trim() };
+        try { store.SaveLibrary(); }
+        catch (Exception e) { store.Tracks[index] = original; renameError.Text = "Could not rename track: " + e.Message; return; }
+        renamingTrack = null; renamePanel.Visibility = Visibility.Collapsed;
+        Refresh(); FocusSelectedTrack();
+    }
+
+    private void RemoveTrack(Track track)
+    {
+        int index = store.Tracks.IndexOf(track);
+        if (index < 0) return;
+        int selectedIndex = results.SelectedIndex;
+        store.Tracks.RemoveAt(index);
+        try { store.SaveLibrary(); }
+        catch (Exception e) { store.Tracks.Insert(index, track); status.Text = "Could not remove track: " + e.Message; return; }
+        removedTracks.Push((track, index));
+        undoButton.IsEnabled = true; undoButton.Visibility = Visibility.Visible;
+        undoButton.ToolTip = $"Restore {track.Name}";
+        removalMessage.Text = $"Removed: {track.Name}. Audio file kept.";
+        if (renamingTrack?.Id == track.Id) { renamingTrack = null; renamePanel.Visibility = Visibility.Collapsed; }
+        if (audio.CurrentTrackId == track.Id || pendingTrackId == track.Id) audio.Stop();
+        selectionRevision++;
+        Refresh();
+        if (results.Items.Count > 0) results.SelectedIndex = Math.Clamp(selectedIndex, 0, results.Items.Count - 1);
+        FocusSelectedTrack();
+    }
+
+    private void UndoRemoval()
+    {
+        if (!removedTracks.TryPeek(out var removed)) return;
+        if (!store.Tracks.Any(t => t.Id == removed.Track.Id))
+        {
+            int index = Math.Min(removed.Index, store.Tracks.Count);
+            store.Tracks.Insert(index, removed.Track);
+            try { store.SaveLibrary(); }
+            catch (Exception e) { store.Tracks.RemoveAt(index); status.Text = "Could not restore track: " + e.Message; return; }
+        }
+        removedTracks.Pop();
+        undoButton.IsEnabled = removedTracks.Count > 0;
+        undoButton.Visibility = removedTracks.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        undoButton.ToolTip = removedTracks.TryPeek(out var next) ? $"Restore {next.Track.Name}" : null;
+        removalMessage.Text = $"Restored: {removed.Track.Name}.";
+        if (IsUrlInput || removed.Track.Name.Contains(search.Text, StringComparison.OrdinalIgnoreCase))
+            store.Settings.SelectedTrackId = removed.Track.Id;
+        selectionRevision++;
         Refresh();
         try { store.SaveSettings(); } catch (Exception e) { status.Text = "Could not save the selection: " + e.Message; }
     }
@@ -292,7 +420,11 @@ public sealed class MainWindow : Window
             return;
         }
 
-        try { await audio.TogglePlayback(track); } catch (Exception e) { status.Text = e.Message; if (!IsVisible) tray.ShowBalloonTip(5000, "Playback failed", e.Message, Forms.ToolTipIcon.Warning); }
+        long revision = ++playbackRevision;
+        pendingTrackId = track.Id;
+        try { await audio.TogglePlayback(track); }
+        catch (Exception e) { status.Text = e.Message; if (!IsVisible) tray.ShowBalloonTip(5000, "Playback failed", e.Message, Forms.ToolTipIcon.Warning); }
+        finally { if (revision == playbackRevision) pendingTrackId = null; }
     }
     private void Reveal() { var foreground = Hotkeys.GetForegroundWindow(); if (foreground != new WindowInteropHelper(this).Handle) previous = foreground; Show(); WindowState = WindowState.Normal; Activate(); search.Focus(); search.SelectAll(); }
     private void Dismiss() { try { store.SaveSettings(); } catch (Exception e) { status.Text = e.Message; return; } Hide(); if (previous != IntPtr.Zero) Hotkeys.SetForegroundWindow(previous); }
@@ -341,7 +473,7 @@ public sealed class MainWindow : Window
         automaticPtt.Unchecked += (_, _) => { pttKey.IsEnabled = false; pttDelay.IsEnabled = false; };
         Label(panel, "Use the same single key as the game, for example V. Return to the game before pressing F8. Track end or Stop releases it. Some games reject simulated input. Test recordings do not hold the key.");
         var error = new TextBlock { TextWrapping = TextWrapping.Wrap };
- panel.Children.Add(error);
+        panel.Children.Add(error);
         AddButton(panel, "Apply and start audio", () =>
         {
             try
@@ -354,34 +486,45 @@ public sealed class MainWindow : Window
                 pushToTalk.Configure(automaticPtt.IsChecked == true, pttCode);
                 var s = store.Settings; s.Microphone = (string)mic.SelectedValue; s.Headphones = (string)hp.SelectedValue; s.Cable = (string)cable.SelectedValue;
                 s.IncludeMicrophoneDuringPlayback = includeMicrophone.IsChecked == true; s.MicrophoneVolume = (float)gain.Value; s.OpenHotkey = open.Text; s.PlayHotkey = play.Text; s.NextHotkey = next.Text; s.PreviousHotkey = previousTrack.Text; s.VolumeDownHotkey = volumeDown.Text; s.VolumeUpHotkey = volumeUp.Text; s.PushToTalkEnabled = automaticPtt.IsChecked == true; s.PushToTalkKey = pttKey.Text.Trim(); s.PushToTalkDelayMs = delayMs;
-                audio.Start(s); store.SaveSettings(); Refresh(); status.Text = "Audio ready. Select a track; use Play or your play hotkey. Escape hides."; window.Close();
+                audio.Start(s); store.SaveSettings(); Refresh(); error.Text = "Audio ready. You can test the microphone and selected track below.";
             }
             catch (Exception e) { error.Text = e.Message; }
         });
-        managementWindow = window;
-        try { window.ShowDialog(); } finally { managementWindow = null; }
-    }
-    private void ShowLibrary()
-    {
-        if (managementWindow != null) { managementWindow.Activate(); return; }
-        var window = Dialog("Library", 680, out var panel);
-        Label(panel, "Rename selected track"); var name = new TextBox(); panel.Children.Add(name);
-        var library = new ListBox { Height = 250, ItemTemplate = (DataTemplate)FindResource("TrackRow"), ItemsSource = store.Tracks.ToList(), Margin = new Thickness(0, 12, 0, 0) }; panel.Children.Add(library);
-        library.SelectionChanged += (_, _) => { if (library.SelectedItem is Track t) name.Text = t.Name; };
-        var actions = new WrapPanel(); panel.Children.Add(actions);
-        var message = new TextBlock { TextWrapping = TextWrapping.Wrap, MaxHeight = 100 };
-        void Reload() { library.ItemsSource = store.Tracks.ToList(); Refresh(); }
-        AddButton(actions, "Rename", () =>
+        AddButton(panel, "Close", () => window.Close());
+        var testPanel = new StackPanel();
+        var testExpander = new Expander { Header = "Test microphone + track", Content = testPanel, Margin = new Thickness(0, 10, 0, 0) };
+        panel.Children.Add(testExpander);
+        testPanel.Children.Add(new TextBlock { Text = "Record up to 10 seconds of the mix sent to broadcast. Listen through headphones. This test is before VB-CABLE and Discord processing; live broadcasting continues.", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 4) });
+        var testState = new TextBlock { TextWrapping = TextWrapping.Wrap };
+        testPanel.Children.Add(testState);
+        var testButtons = new WrapPanel(); testPanel.Children.Add(testButtons);
+        var recordTest = new Button { Content = "Record 10 seconds", Padding = new Thickness(8, 5, 8, 5), Margin = new Thickness(0, 4, 6, 4) };
+        var finishTest = new Button { Content = "Finish", Padding = recordTest.Padding, Margin = recordTest.Margin };
+        var listenTest = new Button { Content = "Listen", Padding = recordTest.Padding, Margin = recordTest.Margin };
+        var clearTest = new Button { Content = "Clear", Padding = recordTest.Padding, Margin = recordTest.Margin };
+        testButtons.Children.Add(recordTest); testButtons.Children.Add(finishTest); testButtons.Children.Add(listenTest); testButtons.Children.Add(clearTest);
+        recordTest.Click += (_, _) => { try { audio.BeginTest(); error.Text = "Test recording started. Speak or play a track."; } catch (Exception e) { error.Text = e.Message; } };
+        finishTest.Click += (_, _) => audio.FinishTest();
+        listenTest.Click += (_, _) => { try { audio.ListenToTest(); } catch (Exception e) { error.Text = e.Message; } };
+        clearTest.Click += (_, _) => audio.ClearTest();
+        AddButton(testButtons, "Play / pause selected track", async () => await PlaySelected());
+        AddButton(testButtons, "Stop", () => audio.Stop());
+        var testTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
+        void UpdateTestState()
         {
-            if (library.SelectedItem is not Track t || string.IsNullOrWhiteSpace(name.Text)) return;
-            try { int i = store.Tracks.IndexOf(t); store.Tracks[i] = t with { Name = name.Text.Trim() }; try { store.SaveLibrary(); } catch { store.Tracks[i] = t; throw; } Reload(); } catch (Exception e) { message.Text = e.Message; }
-        });
-        AddButton(actions, "Remove from library", () =>
-        {
-            if (library.SelectedItem is not Track t) return;
-            try { int i = store.Tracks.IndexOf(t); store.Tracks.Remove(t); try { store.SaveLibrary(); } catch { store.Tracks.Insert(i, t); throw; } Reload(); message.Text = "Removed. The copied audio remains in the Audio folder."; } catch (Exception e) { message.Text = e.Message; }
-        });
-        panel.Children.Add(message);
+            var state = audio.TestStatus;
+            recordTest.IsEnabled = audio.Running && !state.Recording && !state.Playing;
+            finishTest.IsEnabled = state.Recording;
+            listenTest.IsEnabled = audio.Running && state.HasRecording && !state.Recording && !state.Playing;
+            clearTest.IsEnabled = state.HasRecording || state.Recording;
+            testState.Text = state.Recording ? $"Recording {state.Seconds:0.0} / 10 seconds…" : state.Playing ? $"Listening {state.Seconds:0.0} seconds… Stop ends playback." : state.HasRecording ? $"{state.Seconds:0.0} seconds ready. Listen plays only in your headphones." : "No test recorded. Audio stays in memory until cleared or the app exits.";
+        }
+        testTimer.Tick += (_, _) => UpdateTestState();
+        UpdateTestState();
+        testExpander.Expanded += (_, _) => testTimer.Start();
+        testExpander.Collapsed += (_, _) => testTimer.Stop();
+
+        window.Closed += (_, _) => { testTimer.Stop(); audio.FinishTest(); };
         managementWindow = window;
         try { window.ShowDialog(); } finally { managementWindow = null; }
     }

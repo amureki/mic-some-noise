@@ -16,7 +16,7 @@ Your voice passes through while no track is playing. During playback, the app se
 
 ## Play a track
 
-Click a track or use the arrow keys to select it. Selecting a track does not play it. F7/F9 cycle through the full library in name order and wrap at either end. Use **Stop** in the launcher or tray menu to stop playback.
+Click a track or use the arrow keys to select it. Selecting a track does not play it. Use Enter in search or the track list to play, pause, or resume the selected result. Previous/Next and F7/F9 cycle through the search results in name order and wrap at either end. Clear search to cycle through the full library. Use **Stop** in the launcher or tray menu to stop playback.
 
 | Shortcut | Action |
 | --- | --- |
@@ -28,6 +28,8 @@ Click a track or use the arrow keys to select it. Selecting a track does not pla
 | Escape | Hide the launcher |
 
 Shortcuts work while the launcher is hidden. Change them in Settings. Use the tray menu to exit. Closing the launcher hides it and keeps audio running.
+
+Widen the launcher to show two columns of tracks; a narrow window uses one column. Use a track’s **Track actions** menu to rename it or remove it from the library. With the list focused, F2 renames and Delete removes. **Undo** restores removals in reverse order until you exit the app. Removing the playing track stops playback. Audio files stay on disk.
 
 ## Use push-to-talk
 
@@ -47,7 +49,7 @@ Links with playlist or tracking parameters work: only the linked video is import
 
 ## Check your audio
 
-Open **Test microphone + track**, click **Record 10 seconds**, then speak and play a track. Click **Listen** to hear the mix through your headphones. Your voice-chat broadcast stays active during the test.
+Open Settings, expand **Test microphone + track**, click **Record 10 seconds**, then speak and use **Play / pause selected track**. Apply your audio devices first if audio is not running. Click **Listen** to hear the mix through your headphones. Your voice-chat broadcast stays active during the test.
 
 If the recording sounds right but your friends cannot hear the track, check your voice-chat input, voice activation threshold, and noise suppression settings.
 

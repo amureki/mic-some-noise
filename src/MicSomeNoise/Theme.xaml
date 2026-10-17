@@ -80,9 +80,9 @@
         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     </Style>
     <Style TargetType="ListBoxItem">
-        <Setter Property="Padding" Value="14,10" />
-        <Setter Property="Margin" Value="0,2" />
-        <Setter Property="MinHeight" Value="42" />
+        <Setter Property="Padding" Value="10,6" />
+        <Setter Property="Margin" Value="2,2" />
+        <Setter Property="MinHeight" Value="38" />
         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderBrush" Value="Transparent" />
@@ -102,7 +102,12 @@
         </Setter>
     </Style>
     <DataTemplate x:Key="TrackRow">
-        <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" />
+        <DockPanel LastChildFill="True">
+            <Button DockPanel.Dock="Right" Padding="8,2" Margin="8,0,0,0" ToolTip="Track actions" AutomationProperties.Name="Track actions">
+                <Path Data="M 2,4 A 1,1 0 1 0 4,4 A 1,1 0 1 0 2,4 M 8,4 A 1,1 0 1 0 10,4 A 1,1 0 1 0 8,4 M 14,4 A 1,1 0 1 0 16,4 A 1,1 0 1 0 14,4" Fill="{StaticResource Text}" Width="16" Height="8" Stretch="Uniform" />
+            </Button>
+            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" VerticalAlignment="Center" />
+        </DockPanel>
     </DataTemplate>
     <Style TargetType="ComboBox">
         <Setter Property="Background" Value="{StaticResource Surface}" />
@@ -152,6 +157,14 @@
         </Setter>
     </Style>
     <Style TargetType="CheckBox">
+        <Setter Property="Foreground" Value="{StaticResource Text}" />
+    </Style>
+    <Style TargetType="ContextMenu">
+        <Setter Property="Background" Value="{StaticResource Surface}" />
+        <Setter Property="Foreground" Value="{StaticResource Text}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Outline}" />
+    </Style>
+    <Style TargetType="MenuItem">
         <Setter Property="Foreground" Value="{StaticResource Text}" />
     </Style>
     <Style TargetType="Expander">
